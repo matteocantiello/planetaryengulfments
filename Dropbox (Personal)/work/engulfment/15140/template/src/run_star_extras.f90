@@ -110,7 +110,7 @@
 
       ! Initialize injected energy and radial coordinate change
         de = 0d0
-        deltar = 0d0
+        Deltar = 0d0
         f_disruption = 0d0
         R_bondi = 0d0
 
@@ -273,7 +273,7 @@
         ! Save variables for history
 
           s% xtra(1) = v_kepler/1d5                ! Orbital velocity (km/s)
-          s% xtra(2) = Deltar                      ! Infall distance due to drag 
+          s% xtra(2) = Deltar                      ! Infall distance due to drag (cm)
           s% xtra(3) = de                          ! Injected energy (erg)
           s% xtra(4) = f_disruption                ! Disruption factor
           s% xtra(5) = area/(pi * pow(max(R_companion,R_bondi), 2d0))  ! Engulfed fraction
@@ -281,7 +281,8 @@
           s% xtra(7) = R_bondi/Rsun                ! Bondi radius (Rsun)
           s% xtra(8) = sound_speed/1.d5            ! Sound speed (km/s)
           s% xtra(9) = t_tide/secyer               ! Tidal timescale (yrs)
-          s% xtra(10) = Deltar_tides               ! Infall distance due to tides
+          s% xtra(10) = Deltar_tides               ! Infall distance due to tides (cm)
+          s% xtra(11) = Deltar/s% dt/1e5              ! Infall velocity (km/s)
 
       end subroutine energy_routine
 
@@ -467,7 +468,7 @@
          ierr = 0
          call star_ptr(id, s, ierr)
          if (ierr /= 0) return
-         how_many_extra_history_columns = 13
+         how_many_extra_history_columns = 14
       end function how_many_extra_history_columns
 
 
@@ -494,6 +495,7 @@
          names(11) = 'Sound_speed'
          names(12) = 'Tidal_timescale' ! In years
          names(13) = 'Log_Infall_distance_tides' ! dr_tides
+         names(14) = 'Infall_velocity' ! v_r [kms]
          vals(1) = Orbital_separation / Rsun
          vals(2) = s% xtra(1)                 ! Orbital velocity
          vals(3) = safe_log10( s% xtra(2)) ! Infall distance
@@ -507,6 +509,7 @@
          vals(11) = s% xtra(8)
          vals(12) = s% xtra(9)
          vals(13) = safe_log10( s% xtra(10))
+         vals(14) = s% xtra(11)
          ! note: do NOT add the extras names to history_columns.list
          ! the history_columns.list is only for the built-in log column options.
          ! it must not include the new column names you are adding here.
@@ -728,9 +731,8 @@
              end do
            end if
          end if
-
-         ! #################### PRINT OUT #######################################
-         fmt = '(f11.2,f11.3,f11.3,f11.3,f11.3,f11.3,f11.3)'
+        ! #################### PRINT OUT #######################################
+         fmt = '(f11.2,f11.3,f11.6,f11.6,f11.3,f11.3,f11.3,f11.5,f11.5,f11.6)'
          fmt=trim(fmt)
 
          write(*,'(a)') &
@@ -739,10 +741,10 @@
          write(*,*)
          write(*,'(a)') &
             '   a (rsun)      t_tide    Dr_drag   Dr_tides  &
-             R_influence   R_Bondi   R_Star  '
+             R_influence   R_Bondi   R_Star    Dr_next    Dt_next   v_infall [km/s]'
 
         write(*,fmt=fmt) Orbital_separation/Rsun, s% xtra(9), Deltar/Rsun,&
-         Deltar_tides/Rsun, R_influence/Rsun,R_bondi/Rsun,s% r(1)/Rsun
+         Deltar_tides/Rsun, R_influence/Rsun,R_bondi/Rsun,s% r(1)/Rsun, dr_next/Rsun, s% dt_next/Rsun, dr_next/s% dt_next/1d5
          write(*,'(a)') &
             '_______________________________________________________________________' // &
             '___________________________________________________________________________'
