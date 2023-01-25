@@ -94,7 +94,6 @@
         type (star_info), pointer :: s
         integer :: k, nz
         integer :: krr_center, krr_bottom_bondi, krr_top_bondi, krr_bottom_companion, krr_top_companion
-        integer :: krr_bottom, krr_top, delta_k 
         integer :: krr_bottom_scale, krr_top_scale, krr_bottom_companion_minus_hp, krr_top_companion_plus_hp
         real(dp) :: e_orbit, M_companion, R_companion, area, de, sound_speed, R_influence, R_scale_height
         real(dp) :: rr, v_kepler, rho_bar_companion, rho_bar_bondi, rho_bar_drag
@@ -102,7 +101,7 @@
         real(dp) :: f_disruption
         real(dp) :: penetration_depth
         real(dp) :: t_tide
-        real(dp) :: de_orbital_change, enclosed_mass, injected_specific_luminosity 
+        real(dp) :: de_orbital_change, enclosed_mass
         ierr = 0
 
       ! Reads model infos from star structure s. Initialize variables.
@@ -142,8 +141,6 @@
       ! Calculate the bondi radius of the companion using a sound speed of 10 km/s outside the star (typical ISM)
         
         krr_center=1
-        krr_bottom=1
-        krr_top=1 
 
         if (Orbital_separation > s% r(1)) then
             call orbital_velocity(s% m(1), Orbital_separation, v_kepler)
@@ -190,9 +187,6 @@
            rho_bar_drag = rho_bar_companion
         endif
 
-       ! Debug 
-       ! write(*,*) 'rho_bar_companion, rho_bar_bondi , s% rho(krr_center):', rho_bar_companion, rho_bar_bondi , s% rho(krr_center)
-       ! write(*,*) 'krr_top, krr_center , krr_bottom:', krr_top, krr_center , krr_bottom
 
       ! Check if the companion has been destroyed by ram pressure (f>1). This probably only applies to planetary engulfments.
         f_disruption = check_disruption(M_companion,R_companion,v_kepler,rho_bar_drag)
@@ -276,25 +270,19 @@
             ! If the option is selected, the code will deposit in a region extended above and below the planet alpha*HP
             ! Update radial coordinate of the engulfed planet in 'extras_finish_step' using Deltar.
            
-             injected_specific_luminosity = 0d0
-             delta_k = 1
-
              ! Only inject energy if the secondary object geometrically overlaps with the primary - We do not account for energy injection via tides (small contribution)
-             write(*,*) 'krr_bottom_companion, krr_bottom_bondi,  krr_bottom, krr_center', krr_bottom_companion, krr_bottom_bondi,  krr_bottom, krr_center
+             write(*,*) 'R_bondi / R_companion', R_bondi/R_companion
+             write(*,*) 'krr_bottom_companion, krr_bottom_bondi, krr_center', krr_bottom_companion, krr_bottom_bondi, krr_center
+             write(*,*) 'krr_top_companion, krr_top_bondi, krr_center', krr_top_companion, krr_top_bondi, krr_center
              write(*,*)'min(krr_top_bondi,krr_top_companion), max(krr_bottom_bondi,krr_bottom_companion)', min(krr_top_bondi,krr_top_companion), max(krr_bottom_bondi,krr_bottom_companion)
              if (max(krr_bottom_companion, krr_bottom_bondi) > 1) then
                 if (s% x_logical_ctrl(2)) then  
                 do k = min(krr_top_bondi,krr_top_companion_plus_hp), max(krr_bottom_bondi,krr_bottom_companion_minus_hp)
-                   delta_k =  max(max(krr_bottom_bondi,krr_bottom_companion_minus_hp) - min(krr_top_bondi,krr_top_companion_plus_hp),1) + 1 
-                   s% extra_heat(k) = (de/dmsum_companion_hp/s% dt) / delta_k ! Uniform heating (erg/g/sec), delta_k is the number of gridpoints heated up              
-                   injected_specific_luminosity = injected_specific_luminosity + ((de/dmsum_companion_hp/s% dt) / delta_k)! Units of erg / g / sec (so specific luminosity)
+                   s% extra_heat(k) = de/dmsum_companion_hp/s% dt ! Uniform heating (erg/g/sec)      
                 end do
                else  
                 do k = min(krr_top_bondi,krr_top_companion), max(krr_bottom_bondi,krr_bottom_companion)
-                  delta_k = max(max(krr_bottom_bondi,krr_bottom_companion) - min(krr_top_bondi,krr_top_companion), 1) + 1
-                  s% extra_heat(k) = (de/dmsum_drag/s% dt) / delta_k! Uniform heating (erg/g/sec), delta_k is the number of gridpoints heated up  
-                  injected_specific_luminosity = injected_specific_luminosity + ((de/dmsum_drag/s% dt) / delta_k)! Units of erg / g / sec (so specific luminosity)
-                  !write(*,*) 'min(krr_top_bondi,krr_top_companion), max(krr_bottom_bondi,krr_bottom_companion), delta_k, de, extra_heat:', min(krr_top_bondi,krr_top_companion), max(krr_bottom_bondi,krr_bottom_companion), delta_k, de, s% extra_heat(k) 
+                  s% extra_heat(k) = de/dmsum_drag/s% dt ! Uniform heating (erg/g/sec) 
                 end do
                end if  
                ! Check fraction of orbital energy that was injected   
@@ -302,7 +290,8 @@
               !write(*,*) 'Injected Energy / Orbital Energy: ', abs(de/e_orbit) 
               ! Check de /  injected_specific_luminosity
               !write(*,*) 'de_calculated / injected', de/(injected_specific_luminosity* s% dt * dmsum_drag) 
-              total_energy_injected = total_energy_injected + (injected_specific_luminosity* s% dt * dmsum_drag)
+
+              total_energy_injected = total_energy_injected + de*dmsum_drag*s% dt
 
              end if 
 
