@@ -256,7 +256,7 @@
 
 
 
-              !write(*,*) 'k center next step, de', krr_center, de_orbital_change 
+            !write(*,*) 'k center next step, de', krr_center, de_orbital_change 
             !write(*,*) 'M1, M2, a, E, G' , s% m(krr_center),M_companion,Orbital_separation, calculate_orbital_energy(s% m(krr_center),M_companion,Orbital_separation),standard_cgrav
             !write(*,*) 'de_orbital_change, de, de/de_orbital_change', de_orbital_change, de, de/de_orbital_change ! Slight discrepancy between these two because De is approximate (de is in ergs)
               
@@ -270,11 +270,13 @@
             ! If the option is selected, the code will deposit in a region extended above and below the planet alpha*HP
             ! Update radial coordinate of the engulfed planet in 'extras_finish_step' using Deltar.
            
-             ! Only inject energy if the secondary object geometrically overlaps with the primary - We do not account for energy injection via tides (small contribution)
-             write(*,*) 'R_bondi / R_companion', R_bondi/R_companion
-             write(*,*) 'krr_bottom_companion, krr_bottom_bondi, krr_center', krr_bottom_companion, krr_bottom_bondi, krr_center
-             write(*,*) 'krr_top_companion, krr_top_bondi, krr_center', krr_top_companion, krr_top_bondi, krr_center
-             write(*,*)'min(krr_top_bondi,krr_top_companion), max(krr_bottom_bondi,krr_bottom_companion)', min(krr_top_bondi,krr_top_companion), max(krr_bottom_bondi,krr_bottom_companion)
+             ! Only inject energy if the secondary object geometrically overlaps with the primary
+             
+             !write(*,*) 'R_bondi / R_companion', R_bondi/R_companion
+             !write(*,*) 'krr_bottom_companion, krr_bottom_bondi, krr_center', krr_bottom_companion, krr_bottom_bondi, krr_center
+             !write(*,*) 'krr_top_companion, krr_top_bondi, krr_center', krr_top_companion, krr_top_bondi, krr_center
+             !write(*,*)'min(krr_top_bondi,krr_top_companion), max(krr_bottom_bondi,krr_bottom_companion)', min(krr_top_bondi,krr_top_companion), max(krr_bottom_bondi,krr_bottom_companion)
+
              if (max(krr_bottom_companion, krr_bottom_bondi) > 1) then
                 if (s% x_logical_ctrl(2)) then  
                 do k = min(krr_top_bondi,krr_top_companion_plus_hp), max(krr_bottom_bondi,krr_bottom_companion_minus_hp)
@@ -285,18 +287,17 @@
                   s% extra_heat(k) = de/dmsum_drag/s% dt ! Uniform heating (erg/g/sec) 
                 end do
                end if  
+
                ! Check fraction of orbital energy that was injected   
               !call orbital_energy(s% m(krr_center), M_companion,Orbital_separation, e_orbit)
               !write(*,*) 'Injected Energy / Orbital Energy: ', abs(de/e_orbit) 
               ! Check de /  injected_specific_luminosity
               !write(*,*) 'de_calculated / injected', de/(injected_specific_luminosity* s% dt * dmsum_drag) 
 
-              total_energy_injected = total_energy_injected + de*dmsum_drag*s% dt
+              total_energy_injected = total_energy_injected + de
 
              end if 
 
- 
-            
              
         else
               write(*,*) '***************** Planet destroyed at R/Rsun = ', Orbital_separation/Rsun,'*********************'
@@ -319,8 +320,6 @@
                 
         ! Save enclosed mass at timestep
         enclosed_mass = s% m(krr_center)
-        ! Save orbital energy
-        !write(*,*) 'from Call e_orbit' , e_orbit
         e_orbit = calculate_orbital_energy(s% m(krr_center),M_companion,Orbital_separation)
         !write(*,*) 'from Function e_orbit' , e_orbit 
 
@@ -375,14 +374,14 @@
              call unpack_extra_info(s)
           end if
 
-         ! We need to increase the resolution around the area where the extra heat is deposited
-         ! We will do this at the startup and also in the extra_check model, since the position
-         ! of the companion will be changing
+         ! We increase resolution around the region where we deposit the extra heat 
+         ! at startup and also in the extra_check model, given the position of the companion changes
+        
           write(*,*) 'From Startup', s% R_function2_param1, s% R_function2_param2, Orbital_separation, s%use_other_energy
           if (Orbital_separation <= s% r(1) .and. s% use_other_energy ) then
             s% R_function2_param1 = Orbital_separation/(s%r(1)/Rsun) + 2.0 *  s% x_ctrl(2) * Rsun/s%r(1)
             s% R_function2_param2 = Orbital_separation/(s%r(1)/Rsun) - 2.0 *  s% x_ctrl(2) * Rsun/s%r(1)
-            write(*,*) 'From Startup', s% R_function2_param1, s% R_function2_param2
+            ! write(*,*) 'From Startup', s% R_function2_param1, s% R_function2_param2
           endif
         end subroutine extras_startup
 
@@ -425,7 +424,7 @@
          if (Orbital_separation <= s% r(1) + s% x_ctrl(2) * Rsun .and. s% use_other_energy ) then
             s% R_function2_param1 = Orbital_separation/(s%r(1)/Rsun) + 2.0 * 1.0 * s% x_ctrl(2) * Rsun/s%r(1)
             s% R_function2_param2 = Orbital_separation/(s%r(1)/Rsun) - 2.0 * 1.0 * s% x_ctrl(2) * Rsun/s%r(1)
-            write(*,*) 'From extras_check_model', s% R_function2_param1/Rsun, s% R_function2_param2/Rsun
+            ! write(*,*) 'From extras_check_model', s% R_function2_param1/Rsun, s% R_function2_param2/Rsun
           endif
 
          ! by default, indicate where (in the code) MESA terminated
