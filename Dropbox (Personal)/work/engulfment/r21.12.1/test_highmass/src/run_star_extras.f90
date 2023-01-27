@@ -62,7 +62,7 @@
 
        ! Uncomment these lines if you wish to use the functions in this file,
        ! otherwise we use a null_ version which does nothing.
-         s% other_energy => energy_routine
+         s% other_energy => engulfment_energy
 
          s% extras_startup => extras_startup
          s% extras_start_step => extras_start_step
@@ -87,7 +87,7 @@
 
       end subroutine extras_controls
 
-      subroutine energy_routine(id, ierr)
+      subroutine engulfment_energy(id, ierr)
         integer, intent(in) :: id
         integer, intent(out) :: ierr
         logical :: restart, first
@@ -130,6 +130,11 @@
         R_companion = s% x_ctrl(2) * Rsun
 
       
+
+      ! Skip energy deposition if the star is in the initial relaxation phase
+       if (s% doing_relax) return
+      
+
       ! Orbital_separation is the coordinate of the planet's center wrt the primary's core.
       ! If it's a restart, MESA will remember the radial location of the
       ! companion, Orbital_separation, from a photo. This is because we are moving Orbital_separation data in
@@ -163,15 +168,17 @@
      
       call locate_on_grid(id, Orbital_separation, R_companion, krr_bottom_companion ,krr_center, krr_top_companion)
       call locate_on_grid(id, Orbital_separation, R_influence, krr_bottom_bondi ,krr_center, krr_top_bondi)
-      call locate_on_grid(id, Orbital_separation, R_companion+R_scale_height, krr_bottom_companion_minus_hp ,krr_center, krr_top_companion_plus_hp)
-      
-
+     
       ! Calculate mass contained in the spherical shell occupied by the companion (shellular approximation)
       ! and the mass-weighted density of the region of impact for drag calculation
 
         dmsum_companion = sum(s% dm(krr_top_companion:krr_bottom_companion))
         dmsum_bondi = sum(s% dm(krr_top_bondi:krr_bottom_bondi))
-        dmsum_companion_hp = sum(s% dm(krr_top_companion_plus_hp:krr_bottom_companion_minus_hp))
+
+        if (s% x_logical_ctrl(2)) then  ! If x_logical_ctrl(2) true deposit energy in Rp+- alpha*hp
+            call locate_on_grid(id, Orbital_separation, R_companion+R_scale_height, krr_bottom_companion_minus_hp ,krr_center, krr_top_companion_plus_hp)
+            dmsum_companion_hp = sum(s% dm(krr_top_companion_plus_hp:krr_bottom_companion_minus_hp))
+        end if     
 
         rho_bar_companion = dot_product &
                             (s% rho(krr_top_companion:krr_bottom_companion), &
@@ -346,7 +353,7 @@
           s% xtra(14) = total_energy_injected      ! Cumulative energy injected into the star (erg) 
           s% xtra(15) = e_orbit                    ! Orbital energy (erg)
 
-      end subroutine energy_routine
+      end subroutine engulfment_energy
 
 
 
