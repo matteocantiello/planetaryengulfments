@@ -37,7 +37,6 @@
     ! These variables can be saved in photos and restored at restarts
       real(dp) :: Orbital_separation, Deltar, Deltar_tides, R_bondi, R_influence
       real(dp) :: stop_age
-      real(dp) :: total_energy_injected
 
     ! the routines that take care of doing the save/restore are the following:
     ! alloc_extra_info and unpack_extra_info << called by extras_startup
@@ -175,10 +174,6 @@
         dmsum_companion = sum(s% dm(krr_top_companion:krr_bottom_companion))
         dmsum_bondi = sum(s% dm(krr_top_bondi:krr_bottom_bondi))
 
-        if (s% x_logical_ctrl(2)) then  ! If x_logical_ctrl(2) true deposit energy in Rp+- alpha*hp
-            call locate_on_grid(id, Orbital_separation, R_companion+R_scale_height, krr_bottom_companion_minus_hp ,krr_center, krr_top_companion_plus_hp)
-            dmsum_companion_hp = sum(s% dm(krr_top_companion_plus_hp:krr_bottom_companion_minus_hp))
-        end if     
 
         rho_bar_companion = dot_product &
                             (s% rho(krr_top_companion:krr_bottom_companion), &
@@ -194,6 +189,10 @@
            rho_bar_drag = rho_bar_companion
         endif
 
+        if (s% x_logical_ctrl(2)) then  ! If x_logical_ctrl(2) true deposit energy in Rp+- alpha*hp
+            call locate_on_grid(id, Orbital_separation, R_companion+R_scale_height, krr_bottom_companion_minus_hp ,krr_center, krr_top_companion_plus_hp)
+            dmsum_companion_hp = sum(s% dm(krr_top_companion_plus_hp:krr_bottom_companion_minus_hp))
+        end if     
 
       ! Check if the companion has been destroyed by ram pressure (f>1). This probably only applies to planetary engulfments.
         f_disruption = check_disruption(M_companion,R_companion,v_kepler,rho_bar_drag)
@@ -301,7 +300,6 @@
               ! Check de /  injected_specific_luminosity
               !write(*,*) 'de_calculated / injected', de/(injected_specific_luminosity* s% dt * dmsum_drag) 
 
-              total_energy_injected = total_energy_injected + de
 
              end if 
 
@@ -350,8 +348,6 @@
           s% xtra(11) = Deltar/s% dt/1e5           ! Infall velocity (drag) (km/s)
           s% xtra(12) = enclosed_mass              ! Enclosed stellar mass at companion location  
           s% xtra(13) = rho_bar_drag               ! Average Density at companion location
-          s% xtra(14) = total_energy_injected      ! Cumulative energy injected into the star (erg) 
-          s% xtra(15) = e_orbit                    ! Orbital energy (erg)
 
       end subroutine engulfment_energy
 
@@ -371,7 +367,6 @@
            if (.not. restart) then 
             Orbital_separation = s% x_ctrl(6)*Rsun ! Set initial separation to inlist value 
             sound_speed = 10. * 1.d5 ! set c_sound to be ISM in cgs
-            total_energy_injected = 0d0 
             call orbital_velocity(s% m(1), Orbital_separation, v_kepler)
             call bondi_radius (s% x_ctrl(1)*Msun, sound_speed, v_kepler, R_bondi)
             R_influence = max(R_bondi, s% x_ctrl(2)*Rsun)
@@ -446,7 +441,7 @@
          ierr = 0
          call star_ptr(id, s, ierr)
          if (ierr /= 0) return
-         how_many_extra_history_columns = 18
+         how_many_extra_history_columns = 16
       end function how_many_extra_history_columns
 
 
@@ -477,9 +472,7 @@
          names(14) = 'Infall_velocity' ! v_r [kms]
          names(15) = 'Enclosed_mass' ! msun 
          names(16) = 'Local_density' ! cgs
-         names(17) = 'Total_energy_injected' ! cgs 
-         names(18) = 'E_orbit' ! cgs
- 
+     
          vals(1) = Orbital_separation / Rsun
          vals(2) = s% xtra(1)                 ! Orbital velocity
          vals(3) = safe_log10( s% xtra(2)) ! Infall distance
@@ -496,8 +489,7 @@
          vals(14) = s% xtra(11)
          vals(15) = s% xtra(12)
          vals(16) = s% xtra(13)
-         vals(17) = s% xtra(14)
-         vals(18) = s% xtra(15)
+   
 
          ! note: do NOT add the extras names to history_columns.list
          ! the history_columns.list is only for the built-in log column options.
@@ -811,7 +803,6 @@
          ! (TAs) Important to understand what this is and what is done here. This is essential for MESA to remember Orbital_separation between timesteps
          ! and to allow for restarts from photos
          call move_dbl(Orbital_separation)
-         call move_dbl(total_energy_injected)
          call move_dbl(stop_age)
          num_dbls = i
 
