@@ -10,6 +10,7 @@ implicit none
 public
 contains
 
+
 ! Useful subroutines and functions
 ! Calculate change in radial position and energy loss due to drag
 subroutine drag (m1, m2, area, rho, dt, r, de, dr)
@@ -90,24 +91,37 @@ subroutine locate_on_grid(id, Orbital_separation, R_companion, krr_bottom ,krr_c
          call star_ptr(id, s, ierr)
          if (ierr /= 0) return
 
-       krr_center=1
+        call binary_search(s%r, s%nz, Orbital_separation, krr_center)
+        call binary_search(s%r, s%nz, Orbital_separation-R_companion, krr_bottom)
+        call binary_search(s%r, s%nz, Orbital_separation+R_companion, krr_top)  
 
-       do while (krr_center >= 1 .and. krr_center < s% nz .and. s% r(krr_center) >= Orbital_separation)
-          krr_center = krr_center + 1
-       end do
+        krr_center = max(1,krr_center)
+        krr_bottom = max(1,krr_bottom)
+        krr_top = max(1,krr_top)
 
-       krr_bottom=1
-        do while (krr_bottom >= 1 .and. &
-                  krr_bottom < s% nz .and. &
-                  s% r(krr_bottom) >= Orbital_separation-R_companion)
-            krr_bottom = krr_bottom + 1
-        end do
-      krr_top = krr_center
-        do while (krr_top >= 2 .and. s% r(krr_top) < Orbital_separation+R_companion)
-            krr_top = krr_top - 1
-        end do
 end subroutine locate_on_grid
 
+subroutine binary_search(arr, n, target, idx)
+    implicit none
+    real(dp), intent(in) :: arr(n)
+    integer, intent(in) :: n
+    real(dp), intent(in) :: target
+    integer, intent(out) :: idx
+
+    integer :: left, right, mid
+    right = 1
+    left = n
+    idx = 0
+    do while (left >= right)
+        mid = (left + right) / 2
+        if (arr(mid) <= target) then
+            idx = mid
+            left = mid - 1
+        else
+            right = mid + 1
+        end if
+    end do
+end subroutine binary_search
 
 real(dp) function calculate_orbital_energy(m1, m2, r) result(energy)
      real(dp), intent(in) :: m1, m2, r
