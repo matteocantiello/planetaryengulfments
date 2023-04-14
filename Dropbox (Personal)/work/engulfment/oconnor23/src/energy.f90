@@ -10,7 +10,6 @@ implicit none
 public
 contains
 
-
 ! Useful subroutines and functions
 ! Calculate change in radial position and energy loss due to drag
 subroutine drag (m1, m2, area, rho, dt, r, de, dr)
@@ -32,6 +31,25 @@ subroutine drag (m1, m2, area, rho, dt, r, de, dr)
     ! write(*,'(A,e11.4,2X,A,e11.3,2X,A,e11.3)')&
                         !'From inside drag this is dr=', dr/Rsun,'this is r=',r/Rsun,'this is dt',dt
 end subroutine drag
+
+! calculate max cross section for ram pressure vs gravitational dynamical
+! friction; added by Chris O'Connor
+subroutine get_drag_coeffs (sound_speed, v, smin, smax, C_ram, C_grav)
+   real(dp), intent(in) :: sound_speed, v, smin, smax
+   real(dp), intent(out) :: C_ram, C_grav
+   real(dp) :: mach, mach_sq, arg_of_tanh
+   mach = v/sound_speed
+   mach_sq = mach*mach
+   ! hard sphere drag coefficient from fit to Bailey & Hiatt (1972) data
+   arg_of_tanh = 1.75d0 * (mach-1d0)
+   C_ram = 0.375d0 + 0.125d0 * tanh(arg_of_tanh)
+   ! gravitational drag coefficient from Ostriker (1999)
+   if (mach < 1d0) then
+     C_grav = 5d-1 * log((1d0+mach)/(1d0-mach)) - mach
+   else 
+     C_grav = log(smax/smin) - 0.5d0 * log(mach_sq / (mach_sq - 1d0))
+   end if
+end subroutine get_drag_coeffs
 
 ! Calculate orbital velocity
 subroutine orbital_velocity(m1, r, v_kepler)
@@ -55,24 +73,6 @@ end subroutine orbital_velocity
       ! write(*,*) '(m1/9.0)/((m1+m2)*m2)' , t_tide
   end subroutine tidal_timescale
 
-! calculate max cross section for ram pressure vs gravitational dynamical
-! friction; added by Chris O'Connor
-subroutine get_drag_coeffs (sound_speed, v, smin, smax, C_ram, C_grav)
-   real(dp), intent(in) :: sound_speed, v, smin, smax
-   real(dp), intent(out) :: C_ram, C_grav
-   real(dp) :: mach, mach_sq, arg_of_tanh
-   mach = v/sound_speed
-   mach_sq = mach*mach
-   ! hard sphere drag coefficient from fit to Bailey & Hiatt (1972) data
-   arg_of_tanh = 1.75d0 * (mach-1d0)
-   C_ram = 0.375d0 + 0.125d0 * tanh(arg_of_tanh)
-   ! gravitational drag coefficient from Ostriker (1999)
-   if (mach < 1d0) then
-     C_grav = 5d-1 * log((1d0+mach)/(1d0-mach)) - mach
-   else 
-     C_grav = log(smax/smin) - 0.5d0 * log(mach_sq / (mach_sq - 1d0))
-   end if
-end subroutine get_drag_coeffs
 
 subroutine bondi_radius (m2, sound_speed, v, R_bondi)
      real(dp), intent(in)  :: m2, v, sound_speed
@@ -109,86 +109,31 @@ subroutine locate_on_grid(id, Orbital_separation, R_companion, krr_bottom ,krr_c
          call star_ptr(id, s, ierr)
          if (ierr /= 0) return
 
-        call binary_search(s%r, s%nz, Orbital_separation, krr_center)
-        call binary_search(s%r, s%nz, Orbital_separation-R_companion, krr_bottom)
-        call binary_search(s%r, s%nz, Orbital_separation+R_companion, krr_top)  
+       krr_center=1
 
-        krr_center = max(1,krr_center)
-        krr_bottom = max(1,krr_bottom)
-        krr_top = max(1,krr_top)
+       do while (krr_center >= 1 .and. krr_center < s% nz .and. s% r(krr_center) >= Orbital_separation)
+          krr_center = krr_center + 1
+       end do
 
+       krr_bottom=1
+        do while (krr_bottom >= 1 .and. &
+                  krr_bottom < s% nz .and. &
+                  s% r(krr_bottom) >= Orbital_separation-R_companion)
+            krr_bottom = krr_bottom + 1
+        end do
+      krr_top = krr_center
+        do while (krr_top >= 2 .and. s% r(krr_top) < Orbital_separation+R_companion)
+            krr_top = krr_top - 1
+        end do
 end subroutine locate_on_grid
 
-subroutine binary_search(arr, n, target, idx)
-    implicit none
-    real(dp), intent(in) :: arr(n)
-    integer, intent(in) :: n
-    real(dp), intent(in) :: target
-    integer, intent(out) :: idx
 
-    integer :: left, right, mid
-    right = 1
-    left = n
-    idx = 0
-    do while (left >= right)
-        mid = (left + right) / 2
-        if (arr(mid) <= target) then
-            idx = mid
-            left = mid - 1
-        else
-            right = mid + 1
-        end if
-    end do
-end subroutine binary_search
+real(dp) function calculate_orbital_energy(m1, m2, r) result(energy)
+     real(dp), intent(in) :: m1, m2, r
 
+     energy = -standard_cgrav*m1*m2/(2d0*r)
 
-subroutine calculate_intercepted_area (id, Orbital_separation, R_influence, f_disruption, area)
-     implicit none
-     integer, intent(in) :: id
-     real(dp), intent(in) :: Orbital_separation, R_influence, f_disruption
-     real(dp), intent(out):: area
-     real(dp) :: penetration_depth, v_orb, R_bondi, C_ram, C_grav
-     integer :: ierr, k_center 
-
-     type (star_info), pointer :: s
-         include 'formats'
-         ierr = 0
-         call star_ptr(id, s, ierr)
-         if (ierr /= 0) return
-
-
-        ! Calculate area used for drag calculation 
-        penetration_depth = 0d0
-        area = 0d0 ! Initialize cross section of companion (physical or Bondi) for calculating aerodynamic or gravitational drag
- 
-        ! stuff added by Chris to get drag coefficients
-        call binary_search(s% r, s% nz, Orbital_separation, k_center)
-        k_center = max(1, k_center)
-        call orbital_velocity(s% m(k_center), Orbital_separation, v_orb)
-        call bondi_radius(s% x_ctrl(1) * Msun, s% csound(k_center), v_orb, R_bondi) 
-
-      ! Do the calculation only if this is a grazing collision and if the planet has not been destroyed yet
-        if (Orbital_separation > s% r(1) + R_influence) then
-            penetration_depth = 0.d0
-        else
-            penetration_depth = penetration_depth_function(R_influence,s% r(1), Orbital_separation)
-        endif
-
-        if (penetration_depth >= 0.0 .and. (Orbital_separation >= (s% r(1) - R_influence)) .and. (f_disruption <= 1d0)) then
-            ! Calculate intersected area. Rstar-rr is x in sketch
-              area = intercepted_area (penetration_depth, R_influence)
-            !  write(*,*) 'Grazing Collision. Engulfed area fraction: ', s% model_number, area/(pi * pow(R_influence, 2.0))
-        else
-            ! Full engulfment. Cross section area = Planet area
-            !  area = pi * pow(R_influence, 2d0)
-            ! Chris changed things to get the max cross section for ram pressure and dyn friction
-              call get_drag_coeffs(s% csound(k_center), v_orb, R_influence, s% scale_height(k_center), C_ram, C_grav)
-              area = pi * max(C_ram * pow(s% x_ctrl(2) * Rsun, 2d0), C_grav * pow(R_bondi, 2d0) )
-            !  write(*,*) 'Full engulfment. R_influence, area',s% model_number,R_influence/Rsun,area
-        end if
-
-end subroutine calculate_intercepted_area
-
+end function calculate_orbital_energy
 
 ! Calculate 2D Intercepted area of planet grazing host star noting that the radius is not
 ! necessarily the radius of the planet, it could be the Bondi radius if it is larger.
@@ -211,15 +156,6 @@ real(dp) function intercepted_area(x, R_inf) result(area)
       !    write(*,*)'From intercepted_area SUB: more than half: x,R_inf,alpha,area', x/Rsun, R_inf/Rsun, alpha, area
      endif
 end function intercepted_area
-
-     
-real(dp) function calculate_orbital_energy(m1, m2, r) result(energy)
-     real(dp), intent(in) :: m1, m2, r
-
-     energy = -standard_cgrav*m1*m2/(2d0*r)
-
-end function calculate_orbital_energy
-
 
 real(dp) function penetration_depth_function(R_influence, R_star, Orbital_separation) result(penetration_depth)
      real(dp) :: R_influence, R_star, Orbital_separation
@@ -250,6 +186,7 @@ real(dp) function check_disruption_tides(M_companion,R_companion, M_enclosed, Or
     real(dp), intent(in) :: M_companion,R_companion,M_enclosed,Orbital_separation
     ftide = pow((2d0 * R_companion / Orbital_separation), 3d0) * (M_enclosed / M_companion)
 end function check_disruption_tides
+
 
 
 real(dp) function TukeyWindow(x,a)
