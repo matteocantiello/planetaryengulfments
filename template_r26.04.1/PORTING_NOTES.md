@@ -12,7 +12,8 @@ Started 2026-09-25. Procedure: `docs/MESA_UPGRADE_HANDOFF.md`.
 ## Status
 The source below was ported unchanged, then rewritten the same day for energy conservation (see
 `../LOG.md` and `../PLAN.md` Phase 2). The unchanged port is commit f2aa9f8. For the r22 comparison, build that
-commit's `src/`.
+commit's `src/`. Later the same day the physics was split into one module per process (see `src/`), following
+MESA-Engulf; the output is bit-identical.
 
 ## How the template was built
 1. Copied a fresh `$MESA_DIR/star/work` (r26.04.1).

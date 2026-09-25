@@ -4,12 +4,13 @@
 !   - the orbit is integrated with RK4 sub-steps on the start-of-step structure, from the committed separation
 !     a = s% xtra(i_a), under drag and (optionally) equilibrium tides;
 !   - the energy released is exactly E_orb(a_old) - E_orb(a_new), with E_orb in the star's actual potential
-!     (energy.f90). The drag part is deposited along the path with a normalised kernel. The tidal part goes
+!     (potential.f90). The drag part is deposited along the path with a normalised kernel. The tidal part goes
 !     into the convective envelope (x_logical_ctrl(2)) or is only booked;
 !   - nothing is committed. extras_finish_step commits the new separation and the energy ledger to
 !     s% xtra / s% lxtra, which MESA restores on retries and writes to photos.
 !
-! Controls (see also energy.f90, orbit_rates):
+! Physics modules: grid, potential, planet, drag, tides, heating, orbit (.f90).
+! Controls (see also orbit.f90, orbit_rates):
 !   x_ctrl(1)  M_2 (Msun)                    x_ctrl(2)  R_2 (Rsun)
 !   x_ctrl(3)  stop the orbit at a < this (Rsun); <= 0 to disable
 !   x_ctrl(4)  max |da| per step / kernel half-width while grazing
@@ -34,7 +35,9 @@ module run_star_extras
    use const_def
    use math_lib
    use auto_diff
-   use energy
+   use engulf_potential, only: set_potential, e_orb_specific
+   use engulf_orbit, only: orbit_info, orbit_rates
+   use engulf_heating, only: add_kernel_heat, envelope_weights
 
    implicit none
 

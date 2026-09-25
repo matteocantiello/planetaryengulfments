@@ -56,3 +56,11 @@
   - It is a modular refactor of the r21.12.1 test_highmass lineage with the draft's drag law (C=1). It has no
     physics beyond oconnor23's, and it fixes only the α·H_P normalisation.
   - It has not been added to this repo; it is left in place pending a decision.
+- Compared `MESA-Engulf` (Nov 2023, r23.05.1) with the new code:
+  - Its physics is a subset: the draft's drag law, point-mass E_orb, and most of the old bugs. It has no
+    C_d/C_g and no Roche check, and `area.f90` is dead code.
+  - Adopted its layout. `src/energy.f90` was split into `grid`, `potential`, `planet`, `drag`, `tides`,
+    `heating` and `orbit`.
+  - Regression: 60-model in-contact run, history and profiles **bit-identical** to the pre-split build.
+  - Moved it to `legacy/r23.05.1_MESA-Engulf/` without `.git`. It was in sync with GitHub, so its history
+    is there.

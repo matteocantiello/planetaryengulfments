@@ -4,6 +4,7 @@ This is kept for reference and for validating the r26 port. The current code is 
 
 | Path | MESA | Date | Contents |
 |---|---|---|---|
+| `r23.05.1_MESA-Engulf/` | r23.05.1 | Nov 2023 | Modular refactor (one module per process) of the r21.12.1 lineage, from github.com/matteocantiello/MESA-Engulf (full history there). The physics is the draft's drag law (C = 1). It has no C_d/C_g and no Roche check; `area.f90` is not compiled. Its module layout was adopted in `template_r26.04.1/src`. |
 | `r22.05.1_oconnor23/` | r22.05.1 | Apr 2023 | **Latest pre-port code**: the O'Connor et al. 2023 setup; starting models rgb*/agb*/1M*R. It was ported unchanged to r26. The `star` binary here is a macOS build and will not run on Linux. |
 | `r21.12.1/` | r21.12.1 | 2022 | `test_highmass` run directory; `energy_test.ipynb`, `engulfment.ipynb` |
 | `r15140/refactor/` | r15140 | Oct 2022 | Refactored code (older than oconnor23) |
