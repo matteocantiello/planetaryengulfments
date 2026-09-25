@@ -199,3 +199,9 @@
 - `v2_yang` (Yang host, circular, ε_deep = 0): no ejection, as the rule predicts.
 - **Hypothesis under test:** gravitational-drag-dominated companions eject through their wake even when deep
   (Yang+26). New ε_wake·grav_share term; `v2_yang_wake` runs with ε_wake = 0.25.
+- **v2 robustness.** A hard switch between the channels crashed the solver at the transition (dt → 1e-10 yr in
+  `v2b`). Replaced by a smooth switch over (E_drag − E_wind)/E_bind = 1 ± 0.2 (x_ctrl(21)); `v2c` passes the
+  transition cleanly.
+- `v2c` later stalls at a = 9.77 R_sun (10 M_J), the same near-surface stiffness as the compact hosts. Stopped.
+- `v2_yang` finished: 0 ejected (rule). `v2_yang_wake` (ε_wake = 0.25): 1.1e-4 M_sun by 10.6 yr, still running.
+- Fig. 7 (v2 validation) added. STATUS.md updated. Runs archived to Ceph.

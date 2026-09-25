@@ -1,4 +1,4 @@
-# Project status: restart point (2026-09-25, end of day 1)
+# Project status: restart point (2026-09-25, end of day 1; updated after option A v2)
 
 Read this first when resuming. The detailed chronology is in `LOG.md`, the overall plan in `PLAN.md`, and the
 literature for the ejection calibration in `docs/ejection_calibration_literature.md`.
@@ -31,8 +31,15 @@ literature for the ejection calibration in `docs/ejection_calibration_literature
   changed in r26 (gold2 tolerances, time-centred eps_grav) are pinned to their r22 values.
 - **Outflow switch `x_integer_ctrl(4)`:**
   - 0: off.
-  - **1: option A (default)**, a mechanical fraction ε = `x_ctrl(15)` of the drag power removes surface gas.
-    **ε = 0.2 is provisional.** Form 2 (`x_integer_ctrl(5) = 2`) is Γ-limited.
+  - **1: option A (default)**, drag energy removes surface gas instead of heating. `x_integer_ctrl(5)` sets
+    the form:
+    - **3 = v2, default.** A time-dependent Ivanova & Nandez 2016 rule (Eq. 32). While the drag energy
+      released exceeds the binding of the gas outside min(a, R* − R_inf) plus the energy already spent,
+      ε_out = `x_ctrl(18)` = 1 of the drag power removes surface gas at its Bernoulli cost.
+    - Otherwise the fraction is ε_deep (`x_ctrl(19)` = 0) + ε_wake (`x_ctrl(20)` = 0) × the gravitational
+      share of the drag.
+    - A smooth switch of width `x_ctrl(21)` = 0.2 joins the two regimes. A hard switch crashes the solver.
+    - 1 = constant ε (`x_ctrl(15)`); 2 = Γ-limited.
   - 2: option B, which removes outward-moving gas with positive Bernoulli parameter.
 - **Other controls.** `x_ctrl(17)` caps dt at a fraction of t_dyn while the companion is in contact (use ~0.1 to
   resolve the hydrodynamic response). History columns `engulf_Mout_*R0` / `engulf_Munb_*R0` give the outward
@@ -60,7 +67,13 @@ literature for the ejection calibration in `docs/ejection_calibration_literature
      nothing. The orbit agrees: C_g = 1.6–3.1 vs Yang's 1.5–3, and a comparable inspiral time.
    - The diagnosis in the literature (Ivanova & Nandez 2016) is that 3D deposits energy mechanically while 1D
      deposits heat, which is radiated away.
-6. **Literature** (fig5; `docs/ejection_calibration_literature.md`):
+6. **Option A v2** (fig7):
+   - The static rule reproduces Lau+25 SPH (4 R☉ + 1 M_J) to within ~2.
+   - The time-dependent MESA version is within ×2.2 of the static rule (10 R☉ + 10 M_J: 1.3e-4 vs 2.8e-4 M☉).
+   - The rule gives zero ejection for 100 R☉ and AGB hosts, consistent with our option B runs and
+     O'Connor+23. Yang+26 (eccentric, gravitational-drag dominated) is the outlier.
+   - Hypothesis being tested: gravitational wakes carry energy to the outer layers (ε_wake term).
+7. **Literature** (fig5; `docs/ejection_calibration_literature.md`):
    - Dynamical ejecta come from the outer layers and are locally energy-limited against the Bernoulli
      deficit (δE_orb + δE_bind = 0).
    - Deeper, the efficiency is ε ≈ 0.02–0.3 (Ricker & Taam 2012: 0.25).
@@ -80,10 +93,16 @@ literature for the ejection calibration in `docs/ejection_calibration_literature
 | `host_1M100R` | evolves 1M80R → 100 R☉ | produced `1M100R.mod` |
 | `yang_B`, `yang_A` | Yang setup, unresolved | orbit OK, response unresolved |
 | `yang_B_dyn` | Yang setup, B, dt ≤ 0.1 t_dyn | 1.6e-4 M☉ outward flux through R0, 0 unbound (Yang: 2–3e-3, ~1.7e-3) |
-| `yang_Amech` | Yang setup, A, ε = 0.2 | **was still running at archive time**; ~2.6e-5 M☉ removed by 8.7 yr |
+| `yang_Amech` | Yang setup, A form 1, ε = 0.2 | done: 6.7e-4 M☉ removed (Yang unbound ~1.7e-3) |
+| `v2_off` | v2 build, outflow off | regression: bit-identical |
+| `v2_1M4R` | 4 R☉ + 1 M_J, v2 | outer channel on; then numerical stall (compact host) |
+| `v2_rg10_10MJ`, `v2b_rg10_10MJ` | 10 R☉ + 10 M_J, v2 before the reference-depth fix / hard switch | superseded |
+| `v2c_rg10_10MJ` | 10 R☉ + 10 M_J, v2 with smooth switch | outer phase 1.31e-4 M☉ (static 2.8e-4); later near-surface stall at a = 9.77 R☉; stopped |
+| `v2_yang` | Yang setup, v2, ε_wake = 0 | done: 0 ejected (as the rule predicts) |
+| `v2_yang_wake` | Yang setup, v2, ε_wake = 0.25 | **running at archive time** (1.1e-4 M☉ by 10.6 yr) |
 
-The two runs marked "still running" live in local scratch
-(`/tmp/claude-1086/-mnt-home-mcantiello-work-engulfments/bc195eef-31c9-49e2-8393-e43d4d38834e/scratchpad/{agb200_10MJ_B,yang_Amech}`). Re-sync them to Ceph when they finish:
+Runs marked as running live in local scratch
+(`/tmp/claude-1086/-mnt-home-mcantiello-work-engulfments/bc195eef-31c9-49e2-8393-e43d4d38834e/scratchpad/{agb200_10MJ_B,v2_yang_wake}`). Re-sync them to Ceph when they finish:
 `rsync -a --exclude star --exclude make --exclude starting_models --exclude photos <run>/ runs/2026-09-25/<run>/`.
 
 ## Open issues
@@ -97,11 +116,16 @@ The two runs marked "still running" live in local scratch
 - **Mesh refinement** (`x_ctrl(14)`) is implemented but untested.
 - **r22 reproduction** of the port (needs SDK 22.6.1) was skipped at the user's choice.
 
-## Next step: option A v2 (agreed 2026-09-25)
-1. **Outer channel.** Orbital energy released while the companion is in the outer layers unbinds overlying gas
-   at its **Bernoulli deficit** (ε_out ≈ 1; Ivanova & Nandez 2016 rule). e_lift = −B_surf + ½v_∞².
-2. **Deep channel.** ε_deep ~0.02–0.3; the rest stays as heat.
-3. **Transition** set by the binding of the mass above the companion compared with the orbital energy released.
-4. **Calibrate** on Yang+26 (loose host) and Lau+25 (compact host), then the q-scaling on Ivanova & Nandez
-   2016, Kramer+20 and Passy+12. Check stellar companions against Sand+20 / Bronner+24.
-5. Then build the light-curve module: multi-shell Matsumoto & Metzger 2022 driven by Ṁ(t).
+## Next steps
+1. **Finish the wake calibration.** Get `v2_yang_wake`'s final removed mass, and choose ε_wake so that
+   Yang+26's unbound mass (~1.7e-3 M☉) is matched.
+   - Caveat: Yang's orbit is eccentric. Consider an eccentric-equivalent test, or treat Yang as an upper bound.
+2. **Fix the near-surface solver stiffness.** It blocks compact hosts and massive companions once heat goes
+   into tiny outer masses (4 R☉ runs; 10 R☉ + 10 M_J at a ≈ 9.77 R☉). Candidates:
+   - kernel over H_P, or a minimum heated mass;
+   - mesh refinement (`x_ctrl(14)`);
+   - MLT++;
+   - moving the outer boundary to lower τ.
+3. **Calibrate the q-scaling** with Ivanova & Nandez 2016, Kramer+20 and Passy+12 (stellar companions), and
+   check against Sand+20 / Bronner+24.
+4. **Light-curve module:** multi-shell Matsumoto & Metzger 2022, driven by Ṁ(t) and the ejecta energy.

@@ -266,6 +266,63 @@ def fig_agb():
     save(fig, "fig6_AGB200_10MJ.png")
 
 
+# ---------------------------------------------------------------- Fig 7: option A v2 (ejection rule) validation
+def static_rule(prof, mp_msun):
+    """Ivanova & Nandez 2016 Eq. 32 on an unperturbed profile: mass outside the crossing radius."""
+    p = np.genfromtxt(prof, skip_header=5, names=True)
+    r, m, dm = p["radius"] * RSUN, p["mass"] * MSUN, p["dm"]
+    eb = np.cumsum(-p["total_energy"] * dm)           # binding (gravity + internal) of the mass above
+    mab = np.cumsum(dm)
+    de = np.maximum(G * mp_msun * MSUN * (m / (2 * r) - m[0] / (2 * r[0])), 0)
+    ok = de >= eb
+    k = 0
+    while k + 1 < len(ok) and ok[k + 1]:
+        k += 1
+    return mab[k] / MSUN
+
+
+def fig_v2():
+    mj = 9.546e-4
+    fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.6))
+    ax = axes[0]
+    mps = np.array([1, 2, 5, 10, 20, 30])
+    for prof, col, lab in ((os.path.join(RUNS, "phys_1M4R", "LOGS", "profile1.data"), C1, "4 R$_\\odot$ host"),
+                           (os.path.join(RUNS, "rg10_B", "LOGS", "profile1.data"), C2, "10 R$_\\odot$ host")):
+        ax.plot(mps, [static_rule(prof, x * mj) for x in mps], color=col, marker="o", ms=4, label=f"rule, {lab}")
+    ax.errorbar([1.05], [1.4e-5], yerr=[[0.6e-5], [0.6e-5]], fmt="D", color=C1, ms=7, capsize=2,
+                markeredgecolor=SURF, label="Lau+25 SPH, 4 R$_\\odot$ + 1 M$_J$")
+    h = hist("v2c_rg10_10MJ")
+    ax.plot([10], [h["engulf_M_wind_cum"][-1]], "s", color=C2, ms=8, markeredgecolor=INK,
+            label="MESA v2 (time dependent), 10 R$_\\odot$")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("planet mass [M$_J$]")
+    ax.set_ylabel("unbound / ejected mass [M$_\\odot$]")
+    ax.set_title("(a) Outer channel: Ivanova & Nandez rule", loc="left", fontsize=10)
+    ax.legend(fontsize=7.5, loc="upper left")
+    ax.text(0.98, 0.04, "100 R$_\\odot$ and AGB hosts: rule gives 0", transform=ax.transAxes, ha="right",
+            fontsize=8, color=INK2)
+    ax = axes[1]
+    td = np.sqrt((100 * RSUN) ** 3 / (G * MSUN)) / YR
+    for run, lab, col in (("v2_yang_wake", "v2 + wake term ($\\epsilon_{wake}$ = 0.25; in progress)", C1),
+                          ("yang_Amech", "constant $\\epsilon$ = 0.2 (form 1)", C2)):
+        h = hist(run)
+        t = (h["star_age"] - h["star_age"][0]) / td
+        sel = h["engulf_M_wind_cum"] > 0
+        ax.plot(t[sel], h["engulf_M_wind_cum"][sel], color=col, label=lab)
+    ax.fill_between([150, 190], 1.5e-3, 2e-3, color=C3, alpha=0.45, lw=0)
+    ax.plot([], [], color=C3, alpha=0.6, lw=6, label="Yang+26 3D unbound ($e$ = 0.65)")
+    ax.text(10, 4e-3, "v2 without wake term: 0 (rule)", fontsize=8, color=INK2)
+    ax.set_yscale("log")
+    ax.set_ylim(1e-7, 1e-2)
+    ax.set_xlabel("time [$t_{dyn}$]")
+    ax.set_ylabel("mass removed [M$_\\odot$]")
+    ax.set_title("(b) 100 R$_\\odot$ + 5 M$_J$: wake term", loc="left", fontsize=10)
+    ax.legend(fontsize=7.5, loc="lower right")
+    fig.tight_layout()
+    save(fig, "fig7_v2_ejection_rule.png")
+
+
 if __name__ == "__main__":
     fig_energy()
     fig_bugs()
@@ -273,3 +330,4 @@ if __name__ == "__main__":
     fig_yang()
     fig_literature()
     fig_agb()
+    fig_v2()

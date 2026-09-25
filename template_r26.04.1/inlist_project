@@ -97,6 +97,7 @@
     x_ctrl(18) = 1.0       ! form 3: eps_out, fraction of drag power into ejection while the rule holds
     x_ctrl(19) = 0.0       ! form 3: eps_deep, fraction once the gas outside the orbit can no longer be unbound
     x_ctrl(20) = 0.0       ! form 3: eps_wake, extra deep fraction x gravitational share of the drag (wake)
+    x_ctrl(21) = 0.2       ! form 3: width of the smooth switch between channels (ratio 1 -+ w)
     x_ctrl(17) = -1        ! while in contact, max dt / t_dyn of the star (<= 0 off; ~0.1 to resolve hydro, option B)
     x_logical_ctrl(1) = .false. ! tides also when a < R_*
     x_logical_ctrl(2) = .true.  ! deposit tidal heat in the outer convective envelope

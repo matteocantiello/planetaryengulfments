@@ -31,6 +31,7 @@
 !   x_integer_ctrl(5) form of option A: 1 constant fraction epsilon, 2 Gamma-limited, 3 (v2, default) local
 !                     energy-limited ejection of the gas outside the orbit (outflow.f90)
 !   x_ctrl(18) eps_out, form 3 (default 1)      x_ctrl(19) eps_deep, form 3 (default 0)
+!   x_ctrl(21) form 3: width w of the smooth switch between the channels, in (E_drag - E_wind)/E_bind = 1 -+ w
 !   x_ctrl(20) eps_wake, form 3: extra deep-channel fraction times the gravitational share of the drag
 !              (energy carried outward by the wake of a gravitational-drag-dominated companion; default 0)
 !   x_ctrl(15) epsilon, fraction of the drag power into ejection (option A)      x_ctrl(16) beta = v_inf / v_esc,surf of the outflow (A)
@@ -335,7 +336,7 @@ contains
       integer, intent(out) :: ierr
       type(star_info), pointer :: s
       type(orbit_info) :: o
-      real(dp) :: M_unb
+      real(dp) :: M_unb, w_taper, x_rule, s_out
       ierr = 0
       call star_ptr(id, s, ierr)
       if (ierr /= 0) return
@@ -372,13 +373,22 @@ contains
             call overlying_envelope(s, max(min(s% xtra(i_a), s% r(1) - o% R_inf), s% R_center), E_bind_orbit_now, &
                M_above_orbit_now, t_cross_now, t_th_now)
             rule_margin_now = s% xtra(i_E_drag) - s% xtra(i_E_wind) - E_bind_orbit_now
-            if (rule_margin_now >= 0d0 .and. M_above_orbit_now > 0d0) then
+            ! smooth switch between the channels over x = (E_drag - E_wind)/E_bind in 1 -+ w (w = x_ctrl(21))
+            w_taper = s% x_ctrl(21)
+            if (w_taper <= 0d0) w_taper = 1d-6
+            if (E_bind_orbit_now > 0d0 .and. M_above_orbit_now > 0d0) then
+               x_rule = (s% xtra(i_E_drag) - s% xtra(i_E_wind))/E_bind_orbit_now
+               s_out = min(1d0, max(0d0, (x_rule - (1d0 - w_taper))/(2d0*w_taper)))
+            else
+               s_out = 0d0
+            end if
+            if (s_out > 0.5d0) then
                wind_channel_now = 1
-               f_wind_now = min(1d0, max(0d0, s% x_ctrl(18)))
             else
                wind_channel_now = 2
-               f_wind_now = min(1d0, max(0d0, s% x_ctrl(19) + s% x_ctrl(20)*o% grav_share))
             end if
+            f_wind_now = min(1d0, max(0d0, s_out*s% x_ctrl(18) + &
+               (1d0 - s_out)*(s% x_ctrl(19) + s% x_ctrl(20)*o% grav_share)))
             e_lift = surface_bernoulli_lift(s, s% x_ctrl(16))
          case default
             f_wind_now = min(1d0, max(0d0, s% x_ctrl(15)))
