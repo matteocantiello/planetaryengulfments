@@ -69,18 +69,28 @@
 
     profile_header_include_sys_details = .false.
 
-  ! Engulfment parameters (run_star_extras.f90)
+  ! Engulfment parameters (src/run_star_extras.f90 header lists all controls)
     x_ctrl(1) = 0.001    ! companion mass (Msun); 0.001 Msun ~ M_J
     x_ctrl(2) = 0.1      ! companion radius (Rsun); 0.1 Rsun ~ R_J
-    x_ctrl(3) = -10      ! stop point for companion (Rsun); < 0 to disable
-    x_ctrl(4) = 0.005    ! grazing phase: decrease dt if dr/R_influence > this
-    x_ctrl(5) = 0.5      ! full engulfment: decrease dt if dr/R_influence > this
-    x_ctrl(6) = 4.3      ! initial orbital separation (Rsun)
-    x_ctrl(7) = 1d-4     ! max da/a per step due to tides
-    x_ctrl(8) = 1d-10    ! tidal dissipation sigma (Hansen 2010 units); no tides if < 0
-    x_ctrl(9) = 1.0      ! alpha in R_p +- alpha*H_P deposition range (if x_logical_ctrl(2))
-    x_logical_ctrl(1) = .false. ! apply tides also when a < R_*
-    x_logical_ctrl(2) = .false. ! deposit energy over R_p +- alpha*H_P
+    x_ctrl(3) = -10      ! stop the orbit at a < this (Rsun); <= 0 to disable
+    x_ctrl(4) = 0.005    ! grazing: max |da| per step / kernel half-width
+    x_ctrl(5) = 0.5      ! engulfed: max |da| per step / kernel half-width
+    x_ctrl(6) = 4.3      ! initial separation (Rsun)
+    x_ctrl(7) = 1d-4     ! max |da|/a per step from tides
+    x_ctrl(8) = 1d-10    ! tidal sigma (Hansen 2010 units); <= 0: no tides
+    x_ctrl(9) = 1.0      ! alpha in R_2 + alpha*H_P (kernel 2)
+    x_ctrl(10) = -1      ! C_d: > 0 constant; <= 0 Mach-dependent (O'Connor+23 Eq. 8)
+    x_ctrl(11) = -1      ! C_g: > 0 constant; <= 0 Ostriker, ln Lambda = ln(H_P/R_inf), regular at Mach 1
+    x_ctrl(12) = 10      ! after disruption, relax for this many KH times, then stop
+    x_ctrl(13) = 10      ! minimum orbit sub-steps per MESA step
+    x_ctrl(14) = 0       ! mesh refinement around the companion (~cells per kernel half-width); 0 = off
+    x_integer_ctrl(1) = 1  ! drag law: 0 draft (C=1, pi max(R_2,R_acc)^2), 1 max(hydro,grav), 2 sum
+    x_integer_ctrl(2) = 1  ! kernel: 1 |r-a|<R_inf, 2 |r-a|<R_2+alpha H_P, 3 |r-a|<H_P/2, 4 Gaussian(R_inf)
+    x_integer_ctrl(3) = 10 ! terminal output every N models
+    x_logical_ctrl(1) = .false. ! tides also when a < R_*
+    x_logical_ctrl(2) = .true.  ! deposit tidal heat in the outer convective envelope
+
+    use_other_mesh_functions = .true.  ! refinement active only if x_ctrl(14) > 0
 
   ! output
     photo_interval = 50

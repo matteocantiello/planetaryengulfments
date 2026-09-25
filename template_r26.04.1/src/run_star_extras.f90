@@ -1,901 +1,538 @@
-!***********************************************************************
+! Engulfment of a companion (planet or star, R_2 << R_*) by a MESA star, MESA r26.04.1.
 !
-!   Copyright (C) 2010  Bill Paxton
+! Each step (other_energy, called once per step attempt before the solver):
+!   - the orbit is integrated with RK4 sub-steps on the start-of-step structure, from the committed separation
+!     a = s% xtra(i_a), under drag and (optionally) equilibrium tides;
+!   - the energy released is exactly E_orb(a_old) - E_orb(a_new), with E_orb in the star's actual potential
+!     (energy.f90). The drag part is deposited along the path with a normalised kernel. The tidal part goes
+!     into the convective envelope (x_logical_ctrl(2)) or is only booked;
+!   - nothing is committed. extras_finish_step commits the new separation and the energy ledger to
+!     s% xtra / s% lxtra, which MESA restores on retries and writes to photos.
 !
-!   this file is part of mesa.
-!
-!   mesa is free software; you can redistribute it and/or modify
-!   it under the terms of the gnu general library public license as published
-!   by the free software foundation; either version 2 of the license, or
-!   (at your option) any later version.
-!
-!   mesa is distributed in the hope that it will be useful,
-!   but without any warranty; without even the implied warranty of
-!   merchantability or fitness for a particular puR_companionose.  see the
-!   gnu library general public license for more details.
-!
-!   you should have received a copy of the gnu library general public license
-!   along with this software; if not, write to the free software
-!   foundation, inc., 59 temple place, suite 330, boston, ma 02111-1307 usa
-!
-! ***********************************************************************
-
-! added little comment
-
-      module run_star_extras
-
-      use star_lib
-      use star_def
-      use const_def
-      use math_lib
-      use auto_diff
-      use energy
-
-      implicit none
-
-
-    ! These variables can be saved in photos and restored at restarts
-      real(dp) :: Orbital_separation, Deltar, Deltar_tides, R_bondi, R_influence
-      real(dp) :: stop_age
-      real(dp) :: total_energy_injected
-
-    ! the routines that take care of doing the save/restore are the following:
-    ! alloc_extra_info and unpack_extra_info << called by extras_startup
-    ! store_extra_info << called by extras_finish_step
-    ! these routines call move_extra_info.
-    ! it must know about each of your variables to be saved/restored.
-    ! so edit move_extra_info when you change the set of variables.
-
-    ! these routines are called by the standard run_star check_model
-      contains
-
-      subroutine extras_controls(id, ierr)
-         integer, intent(in) :: id
-         integer, intent(out) :: ierr
-         type (star_info), pointer :: s
-         ierr = 0
-         call star_ptr(id, s, ierr)
-         if (ierr /= 0) return
-
-       ! this is the place to set any procedure pointers you want to change
-       ! e.g., other_wind, other_mixing, other_energy  (see star_data.inc)
-
-       ! Uncomment these lines if you wish to use the functions in this file,
-       ! otherwise we use a null_ version which does nothing.
-         s% other_energy => energy_routine
-
-         s% extras_startup => extras_startup
-         s% extras_start_step => extras_start_step
-         s% extras_check_model => extras_check_model
-         s% extras_finish_step => extras_finish_step
-         s% extras_after_evolve => extras_after_evolve
-         s% how_many_extra_history_columns => how_many_extra_history_columns
-         s% data_for_extra_history_columns => data_for_extra_history_columns
-         s% how_many_extra_profile_columns => how_many_extra_profile_columns
-         s% data_for_extra_profile_columns => data_for_extra_profile_columns
-
-         s% how_many_extra_history_header_items => how_many_extra_history_header_items
-         s% data_for_extra_history_header_items => data_for_extra_history_header_items
-         s% how_many_extra_profile_header_items => how_many_extra_profile_header_items
-         s% data_for_extra_profile_header_items => data_for_extra_profile_header_items
-
-       ! Once you have set the function pointers you want,
-       ! then uncomment this (or set it in your star_job inlist)
-       ! to disable the printed warning message,
-       ! s% job% warn_run_star_extras =.false.
-
-
-      end subroutine extras_controls
-
-      subroutine energy_routine(id, ierr)
-        integer, intent(in) :: id
-        integer, intent(out) :: ierr
-        logical :: restart, first
-        type (star_info), pointer :: s
-        integer :: k, nz
-        integer :: krr_center, krr_bottom_bondi, krr_top_bondi, krr_bottom_companion, krr_top_companion
-        integer :: krr_bottom, krr_top, delta_k 
-        integer :: krr_bottom_scale, krr_top_scale, krr_bottom_companion_minus_hp, krr_top_companion_plus_hp
-        real(dp) :: e_orbit, M_companion, R_companion, area, de, sound_speed, R_influence, R_scale_height
-        real(dp) :: rr, v_kepler, rho_bar_companion, rho_bar_bondi, rho_bar_drag
-        real(dp) :: dmsum_companion,dmsum_bondi,dmsum_drag,dmsum_companion_hp, de_heat
-        real(dp) :: f_disruption, f_disruption_tides
-        real(dp) :: penetration_depth
-        real(dp) :: t_tide
-        real(dp) :: de_orbital_change, enclosed_mass, injected_specific_luminosity 
-        real(dp) :: C_ram, C_grav, drag_area
-        ierr = 0
-
-      ! Reads model infos from star structure s. Initialize variables.
-        call star_ptr(id, s, ierr)
-        if (ierr /= 0) return
-
-
-        nz = s% nz               ! Mesh size (primary)
-         
-        do k = 1, nz
-            s% extra_heat(k) = 0d0    ! Initialize extra_heat vector
-        end do
-        
-
-      ! Initialize injected energy and radial coordinate change
-        de = 0d0
-        Deltar = 0d0
-        f_disruption = 0d0
-        f_disruption_tides = 0d0 
-        R_bondi = 0d0
-        R_scale_height = 0d0
-        
-
-
-      ! Mass and radius of injested companion from inlist. Also include a stop point for companion (x_ctrl(3) in Rsun) in case we want to stop before destruction.
-        M_companion = s% x_ctrl(1) * Msun
-        R_companion = s% x_ctrl(2) * Rsun
-
-      
-      ! Orbital_separation is the coordinate of the planet's center wrt the primary's core.
-      ! If it's a restart, MESA will remember the radial location of the
-      ! companion, Orbital_separation, from a photo. This is because we are moving Orbital_separation data in
-      ! photos using 'move_extra_info' and this data is retrieved in 'extras_startup' using 'unpack_extra_info'
-
-      ! Calculate orbital keplerian velocity of the companion (we assume circular orbits)
-      ! If the companion's centre is outside the primary this is easyly done, but if it is inside, we need to use
-      ! only the mass of the primary inside the orbit, so we need to locate the index where the companion core is.
-      ! Calculate the bondi radius of the companion using a sound speed of 10 km/s outside the star (typical ISM)
-        
-        krr_center=1
-        krr_bottom=1
-        krr_top=1 
-
-        if (Orbital_separation > s% r(1)) then
-            call orbital_velocity(s% m(1), Orbital_separation, v_kepler)
-            sound_speed = 10. * 1.d5 ! set c_sound to be ISM in cgs
-        else
-            do while (krr_center >= 1 .and. krr_center < nz .and. s% r(krr_center) >= Orbital_separation)
-                krr_center = krr_center + 1
-            end do
-            call orbital_velocity(s% m(krr_center), s% r(krr_center), v_kepler)
-            sound_speed = s% csound(krr_center)
-        endif
-
-        call bondi_radius (M_companion, sound_speed, v_kepler, R_bondi)
-        R_influence = max(R_bondi,R_companion)  ! Choose radius to be used for drag routine (R_bondi -> Gravodrag, R_companion -> Aerodynamic drag)
-        R_scale_height = s% x_ctrl(9)*s% scale_height(krr_center)  ! alpha*HP 
-        !write(*,*) 'R_bondi, R_scale_height', R_companion/Rsun, R_scale_height/Rsun
-
-      ! locate_on_grid takes Orbital_separation and a radius,
-      ! and determines the corresponding grid points of center (krr_center), and center +- radius (krr_top, krr_bottom)
-     
-      call locate_on_grid(id, Orbital_separation, R_companion, krr_bottom_companion ,krr_center, krr_top_companion)
-      call locate_on_grid(id, Orbital_separation, R_influence, krr_bottom_bondi ,krr_center, krr_top_bondi)
-      call locate_on_grid(id, Orbital_separation, R_companion+R_scale_height, krr_bottom_companion_minus_hp ,krr_center, krr_top_companion_plus_hp)
-      
-
-      ! Calculate mass contained in the spherical shell occupied by the companion (shellular approximation)
-      ! and the mass-weighted density of the region of impact for drag calculation
-
-        dmsum_companion = sum(s% dm(krr_top_companion:krr_bottom_companion))
-        dmsum_bondi = sum(s% dm(krr_top_bondi:krr_bottom_bondi))
-        dmsum_companion_hp = sum(s% dm(krr_top_companion_plus_hp:krr_bottom_companion_minus_hp))
-
-        rho_bar_companion = dot_product &
-                            (s% rho(krr_top_companion:krr_bottom_companion), &
-                             s% dm(krr_top_companion:krr_bottom_companion))/dmsum_companion
-        rho_bar_bondi = dot_product &
-                            (s% rho(krr_top_bondi:krr_bottom_bondi), &
-                             s% dm(krr_top_bondi:krr_bottom_bondi))/dmsum_bondi
-        if (R_bondi >= R_companion) then
-           dmsum_drag = dmsum_bondi
-           rho_bar_drag = rho_bar_bondi
-        else
-           dmsum_drag = dmsum_companion
-           rho_bar_drag = rho_bar_companion
-        endif
-
-       ! Debug 
-       ! write(*,*) 'rho_bar_companion, rho_bar_bondi , s% rho(krr_center):', rho_bar_companion, rho_bar_bondi , s% rho(krr_center)
-       ! write(*,*) 'krr_top, krr_center , krr_bottom:', krr_top, krr_center , krr_bottom
-
-      ! Check if the companion has been destroyed by ram pressure (f>1). This probably only applies to planetary engulfments.
-        f_disruption = check_disruption(M_companion,R_companion,v_kepler,rho_bar_drag)
-
-      ! Calculate area used for drag calculation 
-        penetration_depth = 0d0
-        area = 0d0      ! Initialize cross section of companion (physical or Bondi) for calculating aerodynamic or gravitational drag
-        drag_area = 0d0
-
-       call get_drag_coeffs(s% csound(krr_center), v_kepler, R_influence, s% scale_height(krr_center), C_ram, C_grav)
-             
-
-      ! Do the calculation only if this is a grazing collision and if the planet has not been destroyed yet
-        if (Orbital_separation > s% r(1) + R_influence) then
-            penetration_depth = 0.d0
-        else
-            penetration_depth = penetration_depth_function(R_influence,s% r(1), Orbital_separation)
-        endif
-
-        if (penetration_depth >= 0.0 .and. (Orbital_separation >= (s% r(1) - R_influence)) .and. (f_disruption <= 1d0)) then
-            ! Calculate intersected area. Rstar-rr is x in sketch
-              area = intercepted_area (penetration_depth, R_influence)
-              drag_area = area
-            !  write(*,*) 'Grazing Collision. Engulfed area fraction: ', s% model_number, area/(pi * pow(R_influence, 2.0))
-        else
-            ! Full engulfment. Cross section area = Planet area
-              area = pi * pow(R_influence, 2d0)
-              drag_area = pi * max(C_ram * pow(s% x_ctrl(2) * Rsun, 2d0), C_grav * pow(R_bondi, 2d0) )
-            !  write(*,*) 'Full engulfment. R_influence, area',s% model_number,R_influence/Rsun,area
-        end if
-
-      !  Debug   
-      !  write(*,'(a,i5,4f11.6,3e14.5)') &
-      !          'Orbital_separation, R_bondi, R_influence, penetration depth, rho_bar_bondi, rho_bar_companion, area ',&
-      !           s% model_number, Orbital_separation/Rsun, R_bondi/Rsun, R_influence/Rsun, &
-      !           penetration_depth/Rsun, rho_bar_bondi, rho_bar_companion, area
-
-
-
-        !########################### TIDES ######################################
-
-        ! Calculate tidal timescale (according to Hansen et al. 2010, which uses Hut formalism)
-        ! When Orbital_separation < R_star we assume that only the mass and radius of the star within the orbital separation play a role
-        if (s% x_ctrl(8) > 0.0) then
-            call tidal_timescale(s% m(krr_center), M_companion, s% r(krr_center), &
-             R_companion, Orbital_separation, s% x_ctrl(8), t_tide)
-            Deltar_tides = (s% dt/t_tide) * Orbital_separation
-          else
-            Deltar_tides = 0.0
-            t_tide = 0.0 ! This should be +inf
-        end if
-
-        if (.not. s% x_logical_ctrl(1) .and. Orbital_separation <= s% r(1)) then ! No tides if a<R (if s% x_logical_ctrl(1) = .false.)
-          Deltar_tides = 0.0
-          t_tide = 0.0 ! This should be +inf*
-        end if
-
-        !########################### END TIDES ######################################
-
-        f_disruption_tides = check_disruption_tides(M_companion, R_companion, s% m(krr_center), Orbital_separation)
-
-      ! If the companion has not been destroyed by ram pressure, deposit drag luminosity and heat the envelope
-      ! Spread in the region occupied by the planet or by Bondi sphere, whichever is larger. If the option is selected,
-      ! the code can also spread in a region alpha*HP above an below the planet. 
-      ! Update radial coordinate of the engulfed planet too.
-      ! The strategy is to use drag to estimate Deltar. And then inject the amount of energy corresponding to the corresponding change in orbital energy.
-        if ( f_disruption < 1d0 .and. f_disruption_tides < 1d0 ) then
-
-            ! Note we use s% r(krr_bottom)+R_companion instead of s% r(krr_center) because during grazing phase we track krr_center = krr_bottom 
-              call drag (s% m(krr_center), M_companion, drag_area, rho_bar_drag, s% dt, Orbital_separation, de, Deltar)
-
-              de_orbital_change = calculate_orbital_energy(s% m(krr_center),M_companion,Orbital_separation)  
-              ! write(*,*) 'E_orb(a), Orbital_separation-Deltar-Deltar_tides', de_orbital_change, Orbital_separation,Orbital_separation-Deltar-Deltar_tides
-              de_orbital_change = de_orbital_change - calculate_orbital_energy(s% m(krr_center),M_companion,Orbital_separation-Deltar-Deltar_tides)
-
-
-
-            !write(*,*) 'k center next step, de', krr_center, de_orbital_change 
-            !write(*,*) 'M1, M2, a, E, G' , s% m(krr_center),M_companion,Orbital_separation, calculate_orbital_energy(s% m(krr_center),M_companion,Orbital_separation),standard_cgrav
-            !write(*,*) 'de_orbital_change, de, de/de_orbital_change', de_orbital_change, de, de/de_orbital_change ! Slight discrepancy between these two because De is approximate (de is in ergs)
-              
-            de = de_orbital_change ! Set this to be the exact change in orbital energy. This way we also account for some extra heating coming from tides (very small contribution), but only when the secondary is engulfed. 
-
-            !  write(*,'(A,i4,2f10.4,2e15.4,f12.4,e12.4,e12.4)')'after call drag', s% model_number, s% m(krr_center)/Msun, &
-                        !              area, rho_bar_drag, s% dt, Orbital_separation/Rsun, de, Deltar/Rsun
-
-            ! If the planet has not been destroyed by ram pressure, deposit drag luminosity and heat the envelope
-            ! Spread in the region occupied by the planet or by the Bondi sphere, whichever is larger.
-            ! If the option is selected, the code will deposit in a region extended above and below the planet alpha*HP
-            ! Update radial coordinate of the engulfed planet in 'extras_finish_step' using Deltar.
-           
-             ! Only inject energy if the secondary object geometrically overlaps with the primary
-             
-             !write(*,*) 'R_bondi / R_companion', R_bondi/R_companion
-             !write(*,*) 'krr_bottom_companion, krr_bottom_bondi, krr_center', krr_bottom_companion, krr_bottom_bondi, krr_center
-             !write(*,*) 'krr_top_companion, krr_top_bondi, krr_center', krr_top_companion, krr_top_bondi, krr_center
-             !write(*,*)'min(krr_top_bondi,krr_top_companion), max(krr_bottom_bondi,krr_bottom_companion)', min(krr_top_bondi,krr_top_companion), max(krr_bottom_bondi,krr_bottom_companion)
-
-             if (max(krr_bottom_companion, krr_bottom_bondi) > 1) then
-                if (s% x_logical_ctrl(2)) then  
-                do k = min(krr_top_bondi,krr_top_companion_plus_hp), max(krr_bottom_bondi,krr_bottom_companion_minus_hp)
-                   s% extra_heat(k) = de/dmsum_companion_hp/s% dt ! Uniform heating (erg/g/sec)      
-                end do
-               else  
-                do k = min(krr_top_bondi,krr_top_companion), max(krr_bottom_bondi,krr_bottom_companion)
-                  s% extra_heat(k) = de/dmsum_drag/s% dt ! Uniform heating (erg/g/sec) 
-                end do
-               end if  
-
-
-
-             end if 
-
- 
-        else if (f_disruption >= 1d0 ) then 
-              write(*,*) '***************** Planet destroyed at R/Rsun = ', Orbital_separation/Rsun,'*********************'
-              Deltar = 0d0
-              f_disruption = 1d0
-              s% use_other_energy = .false.
-              stop_age = s% star_age + 1d1 * s% kh_timescale
-              write(*,*)'stop_age and KH timescale are',stop_age, s% kh_timescale
-        else if (f_disruption_tides >= 1d0 ) then
-              write(*,*) '***************** Planet has RLOF at R/Rsun = ', Orbital_separation/Rsun, '*********************'
-              Deltar = 0d0
-              f_disruption_tides = 1d0
-              s% use_other_energy = .false.
-              stop_age = s% star_age + 1d1 * s% kh_timescale
-              write(*,*) 'stop_age and KH timescale are', stop_age, s% kh_timescale
-        endif
-   
-
-  
-
-        ! Debug 
-        !if (s% x_logical_ctrl(2)) then 
-        !      write(*,*) 'Check we have injected correctly: (de_orb/dt) / dl_injected = ', (de/s% dt) / (injected_specific_luminosity*dmsum_companion_hp)
-        !     else 
-        !       write(*,*) 'Check we have injected correctly: (de_orb/dt) / dl_injected = ', (de/s% dt) / (injected_specific_luminosity*dmsum_drag)  
-        !end if   
-
-                
-        ! Save enclosed mass at timestep
-        enclosed_mass = s% m(krr_center)
-        ! Save orbital energy
-        !write(*,*) 'from Call e_orbit' , e_orbit
-        e_orbit = calculate_orbital_energy(s% m(krr_center),M_companion,Orbital_separation)
-        !write(*,*) 'from Function e_orbit' , e_orbit 
-
-        !write(*,*) 'Disruption Factor:', f_disruption
-        !write(*,*) 'FROM ENERGY: deltar, dt, e_orbit ', deltar, s% dt, e_orbit
-
-      ! write(*,*) 'Tidal Timescale (yrs): ',t_tide/secyer, 'Tidal Da (Rsun): ', Deltar_tides/Rsun, s% dt
-
-        ! Save variables for history
-
-          s% xtra(1) = v_kepler/1d5                ! Orbital velocity (km/s)
-          s% xtra(2) = Deltar                      ! Infall distance due to drag (cm)
-          s% xtra(3) = de                          ! Injected energy (erg)
-          s% xtra(4) = f_disruption                ! Disruption factor
-          s% xtra(5) = area/(pi * pow(R_influence, 2d0))  ! Engulfed fraction
-          s% xtra(6) = dmsum_drag/Msun             ! Heated mass (Msun)
-          s% xtra(7) = R_bondi/Rsun                ! Bondi radius (Rsun)
-          s% xtra(8) = sound_speed/1.d5            ! Sound speed (km/s)
-          s% xtra(9) = t_tide/secyer               ! Tidal timescale (yrs)
-          s% xtra(10) = Deltar_tides               ! Infall distance due to tides (cm)
-          s% xtra(11) = Deltar/s% dt/1e5           ! Infall velocity (drag) (km/s)
-          s% xtra(12) = enclosed_mass              ! Enclosed stellar mass at companion location  
-          s% xtra(13) = rho_bar_drag               ! Average Density at companion location
-          s% xtra(14) = total_energy_injected      ! Cumulative energy injected into the star (erg) 
-          s% xtra(15) = e_orbit                    ! Orbital energy (erg)
-          s% xtra(16) = f_disruption_tides         ! RLOF factor
-          s% xtra(17) = C_ram                      ! Drag coeff - Bailey & Hiatt (1972)
-          s% xtra(18) = C_grav                     ! Grav drag coeff - Ostriker (1999)
-          s% xtra(19) = drag_area                  ! Area used to calculate drag luminosity 
-          s% xtra(20) = area                       ! Max(geometric area, Bondi area)  
-
-      end subroutine energy_routine
-
-
-
-
-        subroutine extras_startup(id, restart, ierr)
-           integer, intent(in) :: id
-           logical, intent(in) :: restart
-           integer, intent(out) :: ierr
-           real(dp) :: v_kepler, sound_speed, R_influence !, Orbital_separation_prior
-           type (star_info), pointer :: s
-           ierr = 0
-           call star_ptr(id, s, ierr)
-           if (ierr /= 0) return
-
-           if (.not. restart) then 
-            Orbital_separation = s% x_ctrl(6)*Rsun ! Set initial separation to inlist value 
-            sound_speed = 10. * 1.d5 ! set c_sound to be ISM in cgs
-            total_energy_injected = 0d0 
-            call orbital_velocity(s% m(1), Orbital_separation, v_kepler)
-            call bondi_radius (s% x_ctrl(1)*Msun, sound_speed, v_kepler, R_bondi)
-            R_influence = max(R_bondi, s% x_ctrl(2)*Rsun)
-            stop_age = -101d0
-            call alloc_extra_info(s)
-          else ! it is a restart -> Unpack value of Orbital_separation from photo
-             call unpack_extra_info(s)
-          end if
-
-         ! We need to increase the resolution around the area where the extra heat is deposited
-         ! We will do this at the startup and also in the extra_check model, since the position
-         ! of the companion will be changing
-          write(*,*) 'From Startup', s% R_function2_param1, s% R_function2_param2, Orbital_separation, s%use_other_energy
-          if (Orbital_separation <= s% r(1) .and. s% use_other_energy ) then
-            s% R_function2_param1 = Orbital_separation/(s%r(1)/Rsun) + 2.0 *  s% x_ctrl(2) * Rsun/s%r(1)
-            s% R_function2_param2 = Orbital_separation/(s%r(1)/Rsun) - 2.0 *  s% x_ctrl(2) * Rsun/s%r(1)
-            write(*,*) 'From Startup', s% R_function2_param1, s% R_function2_param2
-          endif
-        end subroutine extras_startup
-
-
-     
-
-      integer function extras_start_step(id)
-           integer, intent(in) :: id
-           integer :: ierr
-           type (star_info), pointer :: s
-           ierr = 0
-           call star_ptr(id, s, ierr)
-           if (ierr /= 0) return
-           extras_start_step = 0
-      end function extras_start_step
-
-     
-
-
-      ! returns either keep_going, retry, backup, or terminate.
-      integer function extras_check_model(id)
-         integer, intent(in) :: id
-         integer :: ierr
-         type (star_info), pointer :: s
-         ierr = 0
-         call star_ptr(id, s, ierr)
-         if (ierr /= 0) return
-         extras_check_model = keep_going
-
-         ! if you want to check multiple conditions, it can be useful
-         ! to set a different termination code depending on which
-         ! condition was triggered.  MESA provides 9 customizeable
-         ! termination codes, named t_xtra1 .. t_xtra9.  You can
-         ! customize the messages that will be printed upon exit by
-         ! setting the corresponding termination_code_str value.
-         ! termination_code_str(t_xtra1) = 'my termination condition'
-      
-         ! write(*,*) 'From extras_check_model', Orbital_separation
-
-         if (Orbital_separation <= s% r(1) + s% x_ctrl(2) * Rsun .and. s% use_other_energy ) then
-            s% R_function2_param1 = Orbital_separation/(s%r(1)/Rsun) + 2.0 * 1.0 * s% x_ctrl(2) * Rsun/s%r(1)
-            s% R_function2_param2 = Orbital_separation/(s%r(1)/Rsun) - 2.0 * 1.0 * s% x_ctrl(2) * Rsun/s%r(1)
-            write(*,*) 'From extras_check_model', s% R_function2_param1/Rsun, s% R_function2_param2/Rsun
-          endif
-
-         ! by default, indicate where (in the code) MESA terminated
-         if (extras_check_model == terminate) s% termination_code = t_extras_check_model
-      end function extras_check_model
-
-
-      integer function how_many_extra_history_columns(id)
-         integer, intent(in) :: id
-         integer :: ierr
-         type (star_info), pointer :: s
-         ierr = 0
-         call star_ptr(id, s, ierr)
-         if (ierr /= 0) return
-         how_many_extra_history_columns = 23
-      end function how_many_extra_history_columns
-
-
-      subroutine data_for_extra_history_columns(id, n, names, vals, ierr)
-         use num_lib
-         integer, intent(in) :: id, n
-         character (len=maxlen_history_column_name) :: names(n)
-         real(dp) :: vals(n)
-         integer, intent(out) :: ierr
-         type (star_info), pointer :: s
-         ierr = 0
-         call star_ptr(id, s, ierr)
-         if (ierr /= 0) return
-
-         names(1) = 'Orbital_separation' ! Radial distance from stellar center of engulfed planet
-         names(2) = 'Orbital_velocity' ! v_kepler
-         names(3) = 'Log_Infall_distance'  ! dr
-         names(4) = 'Log_Injected_energy'  ! de=dl*dt
-         names(5) = 'Log_Destruction_factor'  ! Eq. 5 from Jia & Spruit 2018
-         names(6) = 'Engulfed_fraction'  ! Cross section of the planet/Bondi area engulfed in the star (plane parallel approx, i.e. Max(Rplanet, Rbondi) << Rstar)
-         names(7) = 'Total_mass_affected'
-         names(8) = 'Planet_mass'
-         names(9) = 'Planet_radius'
-         names(10) = 'Bondi_radius'
-         names(11) = 'Sound_speed'
-         names(12) = 'Tidal_timescale' ! In years
-         names(13) = 'Log_Infall_distance_tides' ! dr_tides
-         names(14) = 'Infall_velocity' ! v_r [kms]
-         names(15) = 'Enclosed_mass' ! msun 
-         names(16) = 'Local_density' ! cgs
-         names(17) = 'Total_energy_injected' ! cgs 
-         names(18) = 'E_orbit' ! cgs
-         names(19) = 'f_disruption_tides' 
-         names(20) = 'C_drag' 
-         names(21) = 'C_grav' 
-         names(22) = 'drag_area' 
-         names(23) = 'area' 
-
- 
-         vals(1) = Orbital_separation / Rsun
-         vals(2) = s% xtra(1)                 ! Orbital velocity
-         vals(3) = safe_log10( s% xtra(2)) ! Infall distance
-         vals(4) = safe_log10( s% xtra(3)) ! Injected energy
-         vals(5) = safe_log10( s% xtra(4)) ! Disruption factor (ratio between ram pressure and binding energy density)
-         vals(6) = s% xtra(5)                 ! Engulfed fraction
-         vals(7) = s% xtra(6)
-         vals(8) = s% x_ctrl(1)
-         vals(9) = s% x_ctrl(2)
-         vals(10) = s% xtra(7)
-         vals(11) = s% xtra(8)
-         vals(12) = s% xtra(9)
-         vals(13) = safe_log10( s% xtra(10))
-         vals(14) = s% xtra(11)
-         vals(15) = s% xtra(12)
-         vals(16) = s% xtra(13)
-         vals(17) = s% xtra(14)
-         vals(18) = s% xtra(15)
-         vals(19) = s% xtra(16)    ! RLOF factor
-         vals(20) = s% xtra(17)    ! Drag coeff - Bailey & Hiatt (1972)
-         vals(21) = s% xtra(18)    ! Grav drag coeff - Ostriker (1999)
-         vals(22) = s% xtra(19)    ! Area used to calculate drag luminosity  
-         vals(23) = s% xtra(20)    ! Max(geometric area, Bondi area)    
-
-
-         ! note: do NOT add the extras names to history_columns.list
-         ! the history_columns.list is only for the built-in log column options.
-         ! it must not include the new column names you are adding here.
-      end subroutine data_for_extra_history_columns
-
-
-      integer function how_many_extra_profile_columns(id)
-         use star_def, only: star_info
-         integer, intent(in) :: id
-         integer :: ierr
-         type (star_info), pointer :: s
-         ierr = 0
-         call star_ptr(id, s, ierr)
-         if (ierr /= 0) return
-         how_many_extra_profile_columns = 1
-      end function how_many_extra_profile_columns
-
-
-      subroutine data_for_extra_profile_columns(id, n, nz, names, vals, ierr)
-         use num_lib
-         use math_lib
-     !    use auto_diff
-         use star_def, only: star_info, maxlen_profile_column_name
-         use const_def, only: dp
-         integer, intent(in) :: id, n, nz
-         character (len=maxlen_profile_column_name) :: names(n)
-         real(dp) :: vals(nz,n)
-         integer, intent(out) :: ierr
-         type (star_info), pointer :: s
-         integer :: k
-         ierr = 0
-         call star_ptr(id, s, ierr)
-         if (ierr /= 0) return
-
-         ! Adding extra heating so that we can plot on pgstar
-         names(1) = 'engulfment_heating'
-         do k = 1, nz
-            vals(k,1) =  safe_log10( s% extra_heat(k)%val )  
+! Controls (see also energy.f90, orbit_rates):
+!   x_ctrl(1)  M_2 (Msun)                    x_ctrl(2)  R_2 (Rsun)
+!   x_ctrl(3)  stop the orbit at a < this (Rsun); <= 0 to disable
+!   x_ctrl(4)  max |da| per step / kernel half-width while grazing
+!   x_ctrl(5)  max |da| per step / kernel half-width when fully engulfed
+!   x_ctrl(6)  initial separation (Rsun)
+!   x_ctrl(7)  max |da|/a per step from tides
+!   x_ctrl(8)  tidal sigma (Hansen 2010 units); <= 0: no tides
+!   x_ctrl(9)  alpha in R_2 + alpha H_P (kernel 2)
+!   x_ctrl(10) C_d (> 0 constant, <= 0 Mach-dependent)   x_ctrl(11) C_g (> 0 constant, <= 0 Ostriker)
+!   x_ctrl(12) after disruption, evolve this many Kelvin-Helmholtz times, then stop (<= 0: 10)
+!   x_ctrl(13) minimum number of orbit sub-steps per step (<= 0: 10)
+!   x_ctrl(14) mesh refinement around the companion: ~cells per kernel half-width (<= 0: off;
+!              needs use_other_mesh_functions = .true.)
+!   x_integer_ctrl(1) drag law (0 draft, 1 max, 2 sum)   x_integer_ctrl(2) heating kernel (1-4)
+!   x_integer_ctrl(3) terminal output every this many models (<= 0: 10)
+!   x_logical_ctrl(1) tides also when a < R_*            x_logical_ctrl(2) deposit tidal heat in the envelope
+
+module run_star_extras
+
+   use star_lib
+   use star_def
+   use const_def
+   use math_lib
+   use auto_diff
+   use energy
+
+   implicit none
+
+   ! persistent state in s% xtra / s% lxtra (restored on retries, saved in photos)
+   integer, parameter :: i_a = 1              ! separation (cm)
+   integer, parameter :: i_E_drag = 2         ! cumulative drag energy deposited (erg)
+   integer, parameter :: i_E_tide = 3         ! cumulative tidal energy dissipated (erg)
+   integer, parameter :: i_E_tide_dep = 4     ! cumulative tidal energy deposited (erg)
+   integer, parameter :: i_E_heat_code = 5    ! cumulative sum(extra_heat*dm*dt) as set by this code (erg)
+   integer, parameter :: i_E_heat_mesa = 6    ! cumulative s% total_extra_heating as integrated by MESA (erg)
+   integer, parameter :: i_E_err_mesa = 7     ! cumulative signed s% error_in_energy_conservation (erg)
+   integer, parameter :: i_W_pot = 8          ! cumulative change of E_orb from changes of the potential (erg)
+   integer, parameter :: i_E_orb0 = 9         ! E_orb at the start of the run (erg)
+   integer, parameter :: i_stop_age = 10      ! age (yr) at which to stop after disruption; < 0 unset
+   integer, parameter :: i_a_stop = 11        ! separation at disruption (cm)
+   integer, parameter :: i_active = 1         ! lxtra: companion still orbiting
+
+   ! results of the current step attempt (recomputed on every attempt; committed in extras_finish_step)
+   integer :: trial_model = -1
+   real(dp) :: a_trial = 0, dE_drag_trial = 0, dE_tide_trial = 0, dE_tide_dep_trial = 0, heat_trial = 0
+   real(dp) :: e_end_start_struct = 0, P_ratio_trial = 1, heated_mass_trial = 0
+   integer :: nsub_trial = 0
+   logical :: destroyed_trial = .false.
+   character(len=32) :: destroy_reason = ''
+   type(orbit_info) :: o_step                 ! at the committed separation, start-of-step structure
+   type(orbit_info) :: o_now                  ! at the committed separation, end-of-step structure
+   real(dp) :: E_orb_now = 0, dt_limit_now = 0
+   real(dp), allocatable :: heat(:), wenv(:)
+
+contains
+
+   subroutine extras_controls(id, ierr)
+      integer, intent(in) :: id
+      integer, intent(out) :: ierr
+      type(star_info), pointer :: s
+      ierr = 0
+      call star_ptr(id, s, ierr)
+      if (ierr /= 0) return
+
+      s% other_energy => engulf_energy
+      s% how_many_other_mesh_fcns => how_many_engulf_mesh_fcns
+      s% other_mesh_fcn_data => engulf_mesh_fcn_data
+
+      s% extras_startup => extras_startup
+      s% extras_start_step => extras_start_step
+      s% extras_check_model => extras_check_model
+      s% extras_finish_step => extras_finish_step
+      s% extras_after_evolve => extras_after_evolve
+      s% how_many_extra_history_columns => how_many_extra_history_columns
+      s% data_for_extra_history_columns => data_for_extra_history_columns
+      s% how_many_extra_profile_columns => how_many_extra_profile_columns
+      s% data_for_extra_profile_columns => data_for_extra_profile_columns
+      s% how_many_extra_history_header_items => how_many_extra_history_header_items
+      s% data_for_extra_history_header_items => data_for_extra_history_header_items
+      s% how_many_extra_profile_header_items => how_many_extra_profile_header_items
+      s% data_for_extra_profile_header_items => data_for_extra_profile_header_items
+   end subroutine extras_controls
+
+
+   ! ------------------------------------------------------------------------ heating
+
+   subroutine engulf_energy(id, ierr)
+      integer, intent(in) :: id
+      integer, intent(out) :: ierr
+      type(star_info), pointer :: s
+      type(orbit_info) :: o1, o2, o3, o4, oc
+      integer :: k, j, nz, nsub, kernel
+      real(dp) :: M2, dt, a0, x, xn, h, k1, k2, k3, k4, Pd, Pt, Ed, Et, dEd, &
+         e0, e1, m_enc, dedx, dE_tot, fd, a_stop, rate, xmid
+      logical :: ok
+
+      ierr = 0
+      call star_ptr(id, s, ierr)
+      if (ierr /= 0) return
+      nz = s% nz
+      do k = 1, nz
+         s% extra_heat(k) = 0d0
+      end do
+      trial_model = -1
+      if (s% doing_relax) return
+      if (.not. s% lxtra(i_active)) return
+
+      call ensure_work_arrays(nz)
+      M2 = s% x_ctrl(1)*Msun
+      dt = s% dt
+      a0 = s% xtra(i_a)
+      kernel = s% x_integer_ctrl(2)
+      if (kernel < 1 .or. kernel > 4) kernel = 1
+      a_stop = s% x_ctrl(3)*Rsun
+
+      call set_potential(s)
+      call orbit_rates(s, a0, o_step)
+
+      rate = abs(o_step% dadt_drag + o_step% dadt_tide)
+      nsub = max(1, nint(s% x_ctrl(13)))
+      if (s% x_ctrl(13) <= 0d0) nsub = 10
+      if (rate > 0d0) nsub = max(nsub, min(5000, ceiling(20d0*rate*dt/o_step% W)))
+
+      heat(1:nz) = 0d0
+      destroyed_trial = .false.
+      destroy_reason = ''
+      x = a0
+      Ed = 0d0
+      Et = 0d0
+      h = dt/nsub
+      if (rate > 0d0) then
+         do j = 1, nsub
+            call orbit_rates(s, x, o1)
+            k1 = o1% dadt_drag + o1% dadt_tide
+            call orbit_rates(s, max(x + 0.5d0*h*k1, 1d-3*x), o2)
+            k2 = o2% dadt_drag + o2% dadt_tide
+            call orbit_rates(s, max(x + 0.5d0*h*k2, 1d-3*x), o3)
+            k3 = o3% dadt_drag + o3% dadt_tide
+            call orbit_rates(s, max(x + h*k3, 1d-3*x), o4)
+            k4 = o4% dadt_drag + o4% dadt_tide
+            xn = max(x + h*(k1 + 2d0*k2 + 2d0*k3 + k4)/6d0, 1d-3*x)
+            Pd = (o1% P_drag + 2d0*o2% P_drag + 2d0*o3% P_drag + o4% P_drag)/6d0
+            Pt = (o1% P_tide + 2d0*o2% P_tide + 2d0*o3% P_tide + o4% P_tide)/6d0
+            dEd = Pd*h
+            if (dEd > 0d0) then
+               xmid = 0.5d0*(x + xn)
+               ok = add_kernel_heat(s, xmid, o2% W, kernel, dEd, heat)
+               ! kernel entirely above the surface (possible while grazing): put the heat in the surface layer
+               if (.not. ok) ok = add_kernel_heat(s, s% r(1), o2% W, 1, dEd, heat)
+            end if
+            Ed = Ed + dEd
+            Et = Et + Pt*h
+            x = xn
+            call orbit_rates(s, x, oc)
+            if (oc% f_ram >= 1d0) then
+               destroy_reason = 'ram pressure'
+            else if (oc% f_roche >= 1d0) then
+               destroy_reason = 'Roche-lobe overflow'
+            else if (x < a_stop) then
+               destroy_reason = 'stop radius x_ctrl(3)'
+            else if (x <= oc% R_inf .or. x <= 2d-3*a0) then
+               destroy_reason = 'reached the centre'
+            end if
+            if (len_trim(destroy_reason) > 0) then
+               destroyed_trial = .true.
+               exit
+            end if
          end do
+      end if
 
-         !note: do NOT add the extra names to profile_columns.list
-         ! the profile_columns.list is only for the built-in profile column options.
-         ! it must not include the new column names you are adding here.
-      end subroutine data_for_extra_profile_columns
+      ! exact energy released: difference of the orbital energy in the (start-of-step) potential
+      call e_orb_specific(s, a0, e0, m_enc, dedx)
+      call e_orb_specific(s, x, e1, m_enc, dedx)
+      dE_tot = M2*(e0 - e1)
+      if (Ed + Et > 0d0) then
+         fd = Ed/(Ed + Et)
+         P_ratio_trial = (Ed + Et)/dE_tot
+      else
+         fd = 0d0
+         P_ratio_trial = 1d0
+      end if
+      dE_drag_trial = fd*dE_tot
+      dE_tide_trial = dE_tot - dE_drag_trial
+      if (Ed > 0d0) heat(1:nz) = heat(1:nz)*(dE_drag_trial/Ed)
 
+      dE_tide_dep_trial = 0d0
+      if (dE_tide_trial > 0d0 .and. s% x_logical_ctrl(2)) then
+         call envelope_weights(s, wenv)
+         heat(1:nz) = heat(1:nz) + dE_tide_trial*wenv(1:nz)
+         dE_tide_dep_trial = dE_tide_trial
+      end if
 
-       integer function how_many_extra_history_header_items(id)
-           integer, intent(in) :: id
-           integer :: ierr
-           type (star_info), pointer :: s
-           ierr = 0
-           call star_ptr(id, s, ierr)
-           if (ierr /= 0) return
-           how_many_extra_history_header_items = 0
-        end function how_many_extra_history_header_items
+      do k = 1, nz
+         s% extra_heat(k) = heat(k)/(s% dm(k)*dt)
+      end do
+      heat_trial = sum(heat(1:nz))
+      heated_mass_trial = sum(s% dm(1:nz), mask=heat(1:nz) > 0d0)
 
-
-        subroutine data_for_extra_history_header_items(id, n, names, vals, ierr)
-           integer, intent(in) :: id, n
-           character (len=maxlen_history_column_name) :: names(n)
-           real(dp) :: vals(n)
-           type(star_info), pointer :: s
-           integer, intent(out) :: ierr
-           ierr = 0
-           call star_ptr(id,s,ierr)
-           if(ierr/=0) return
-
-           ! here is an example for adding an extra history header item
-           ! also set how_many_extra_history_header_items
-           ! names(1) = 'mixing_length_alpha'
-           ! vals(1) = s% mixing_length_alpha
-
-        end subroutine data_for_extra_history_header_items
-
-
-
-  
-
-       integer function how_many_extra_profile_header_items(id)
-           integer, intent(in) :: id
-           integer :: ierr
-           type (star_info), pointer :: s
-           ierr = 0
-           call star_ptr(id, s, ierr)
-           if (ierr /= 0) return
-           how_many_extra_profile_header_items = 0
-        end function how_many_extra_profile_header_items
+      a_trial = x
+      e_end_start_struct = e1
+      nsub_trial = nsub
+      trial_model = s% model_number
+   end subroutine engulf_energy
 
 
+   subroutine ensure_work_arrays(nz)
+      integer, intent(in) :: nz
+      if (allocated(heat)) then
+         if (size(heat) < nz) deallocate(heat, wenv)
+      end if
+      if (.not. allocated(heat)) allocate(heat(nz + 1000), wenv(nz + 1000))
+   end subroutine ensure_work_arrays
 
 
-      subroutine data_for_extra_profile_header_items(id, n, names, vals, ierr)
-           integer, intent(in) :: id, n
-           character (len=maxlen_profile_column_name) :: names(n)
-           real(dp) :: vals(n)
-           type(star_info), pointer :: s
-           integer, intent(out) :: ierr
-           ierr = 0
-           call star_ptr(id,s,ierr)
-           if(ierr/=0) return
-
-           ! here is an example for adding an extra profile header item
-           ! also set how_many_extra_profile_header_items
-           ! names(1) = 'mixing_length_alpha'
-           ! vals(1) = s% mixing_length_alpha
-
-        end subroutine data_for_extra_profile_header_items
-
-
-
-      ! returns either keep_going or terminate.
-      ! note: cannot request retry or backup; extras_check_model can do that.
-
-      integer function extras_finish_step(id)
-         integer, intent(in) :: id
-         integer :: ierr, k
-         logical :: grazing_phase
-         real(dp) :: dr, delta_e, area, energy, R_influence, penetration_depth, dr_next
-         real(dp) :: v_kepler
-         character (len=90) :: fmt
-         type (star_info), pointer :: s
-         ierr = 0
-         call star_ptr(id, s, ierr)
-         if (ierr /= 0) return
-         extras_finish_step = keep_going
-         call store_extra_info(s)
-
-       ! Update the radial coordinate of the engulfed companion
-       if ((.not. s% doing_first_model_of_run) .and. s% use_other_energy ) then
-         Orbital_separation = max(Orbital_separation-Deltar-Deltar_tides, 0d0)
-       end if
-       !write(*,*) 'FROM FINISH STEP: deltar, dt ', deltar, s% dt
-       !write(*,*) 'Orbital_separation-Deltar-Deltar_tides', Orbital_separation
-
-       ! Decrease timestep to fill da_tides/a tolerance
-       ! write(*,*) 'Tff: ', s% xtra9, 'Tolerance: ',s% x_ctrl(7) , 'Orbital Sep: ',Orbital_separation
-       !write(*,*) 'Deltar_tides/Orbital_separation',Deltar_tides/Orbital_separation,'Tolerance', s% x_ctrl(7)
-       !write(*,*) 'Dt, Dt_next', s% dt, s% dt_next
-       ! write(*,*) ' Deltar_tides/Orbital_separation > tolerance (Bad if > 1)', Deltar_tides/Orbital_separation, s% x_ctrl(7)
-       if ((Deltar_tides/Orbital_separation >= s% x_ctrl(7)) .and. s% xtra(9) > 0.0 .and. s% use_other_energy) then
-          s% dt_next = s% x_ctrl(7)* secyer * s% xtra(9)  ! Dt = tolerance * t_tide
-          write(*,*) 'TIDES SETTING NEXT TIMESTEP: ', s% x_ctrl(7), s% xtra(9), s% dt_next
-       end if
-       ! CALCULATE R_influence AGAIN as it is not available to this part of the code
-       ! But before we need bondi radius and orbital velocity.
-       ! Calculate approx gridpoint location of planet center
-
-
-         k=1
-         do while (s% r(k) > Orbital_separation)
-            k=k+1
-         end do
-
-         call orbital_velocity(s% m(1), Orbital_separation, v_kepler)
-         call bondi_radius (s% x_ctrl(1)*Msun, s% csound(k), v_kepler, R_bondi)
-         R_influence = max(R_bondi,s% x_ctrl(2)*Rsun)
-        ! write(*,*)'From early',Orbital_separation/Rsun, Deltar/Rsun, R_influence/Rsun,R_bondi/Rsun
-
-       ! Stop the run if: 1) we are at or past the stop age, but only if it has been set (default value is -101d0)
-       !                  2) Orbital_separation is smaller than inlist-provided stop point x_ctrl(3) in Rsun or if
-       !                  2B) Orbital_separation has become smaller than the companion radius or Bondi Radius, whichever is largest
-         if (stop_age .GT. 0d0 .AND. s% star_age .GT. stop_age) then
-           write(*,*) "Star should be thermally relaxed. Stopping."
-           extras_finish_step = terminate
-         endif
-         if (Orbital_separation < R_influence .or. Orbital_separation < s% x_ctrl(3)*Rsun) then
-          ! write(*,'(A,f10.4,A,f10.4,A,f10.4)') "Reached stop point from inlist. Orbital_separation=", Orbital_separation/Rsun, &
-          !                                      'R_influence=',R_influence/Rsun, 'inslist stop:',s% x_ctrl(3)
-           !extras_finish_step = terminate
-           s% use_other_energy = .false. ! This also stops the tidal orbital evolution
-           stop_age = s% star_age + 1d1 * s% kh_timescale
-         endif
-
-       ! Determine next timestep dt_next so that companion  infall distance dr is not too large compared to the influence radius
-         delta_e = 0d0
-         dr = 0d0
-         energy = 0d0
-         penetration_depth = 0d0
-         grazing_phase = .false.
-
-       ! Only do this if the planet is still around and falling into the star
-         !write(*,*)'grazer outside if f_disruption, Deltar',s% model_number,s% xtra4,Deltar/Rsun
-         if (s% xtra(4) < 1d0 .and. Deltar >= 0d0) then
-         ! Calculate predicted dr in two cases: grazing phase and full engulfment
-           penetration_depth = penetration_depth_function(R_influence,s% r(1), Orbital_separation)
-           !write(*,*)'From outside grazer',s% model_number,R_influence/Rsun,(R_influence + s% r(1) - Orbital_separation)/Rsun,&
-          !               penetration_depth/Rsun, R_influence/Rsun,s% r(1)/Rsun,Orbital_separation/Rsun
-           if (penetration_depth <= 2d0*R_influence) then
-              area = intercepted_area (penetration_depth, R_influence)
-              grazing_phase = .true.
-          !  write(*,*)'From grazer 1: r_infl, Orbital_separation-r_infl,Rstar,penetration,Deltar', &
-          !              s% model_number,R_influence/Rsun,(Orbital_separation-R_influence)/Rsun,s% r(1)/Rsun, &
-          !              penetration_depth/Rsun, Deltar/Rsun
-           else
-              area = pi * pow(R_influence, 2d0)
-            !  write(*,*)'From grazer 2: r_infl, Orbital_separation-r_infl,Rstar,penetration,Deltar', &
-            !            s% model_number,R_influence/Rsun,(Orbital_separation-R_influence)/Rsun,s% r(1)/Rsun, &
-            !            penetration_depth/Rsun, Deltar/Rsun
-           end if
-
-         ! Estimate dr
-           !write(*,*)'From inside finish step, just before drag call',s% model_number,s% m(k)/Msun
-           call drag(s% m(k), s% x_ctrl(1)*Msun, area, s% rho(k), s% dt_next, s% r(k), delta_e, dr_next)
-           !write(*,'(A,i4,f12.4,6e12.4)')'From end drag', &
-          !      s% model_number,s% m(k)/Msun,area,s% rho(k),s% dt_next,s% r(k)/Rsun,delta_e,dr_next/Rsun
-
-           if (grazing_phase) then                       ! Grazing Phase (requires small dr)
-             do while (dr_next/R_influence > s% x_ctrl(4))
-               s% dt_next = s% dt_next/2d0               ! There are better strategies, but this is simple enough
-               call drag (s% m(k), s% x_ctrl(1)*Msun,area,s% rho(k),s% dt_next,s% r(k),delta_e,dr_next)
-               write(*,*) s% model_number,&
-                         'GRAZING ENGULFMENT SETTING DTNEXT: dr/R_influence too large: ' &
-                         , dr_next/R_influence,'Decreasing dt to ', s% dt_next
-             end do
-           else
-             do while (dr_next/R_influence > s% x_ctrl(5))   ! or Full Engulfment (allow for larger dr)
-               s% dt_next = s% dt_next/2d0
-               call drag (s% m(k), s% x_ctrl(1)*Msun,area,s% rho(k),s% dt_next,s% r(k),delta_e,dr_next)
-               write(*,*) s% model_number,&
-                         ! 'Engulfed dr/r_p too large: ', dr/(max(R_bondi,s% x_ctrl(2) * Rsun)),'Decreasing timestep to ', s% dt_next
-                         'ENGULFMENT SETTING DTNEXT: dr/R_influence too large: ' &
-                         , dr_next/R_influence,'Decreasing dt to ', s% dt_next
-             end do
-           end if
+   ! Limit the next timestep so the companion moves at most a fraction of the kernel width (drag) or of
+   ! its separation (tides) per step.
+   subroutine limit_dt(s, o)
+      type(star_info), pointer :: s
+      type(orbit_info), intent(in) :: o
+      real(dp) :: lim, tol
+      lim = huge(1d0)
+      if (o% in_contact .and. abs(o% dadt_drag) > 0d0) then
+         if (o% grazing) then
+            tol = s% x_ctrl(4)
+         else
+            tol = s% x_ctrl(5)
          end if
-        ! #################### PRINT OUT #######################################
-         fmt = '(f11.2,f11.3,f11.6,f11.6,f11.3,f11.3,f11.3,f11.5,f11.5,f11.6)'
-         fmt=trim(fmt)
-
-         write(*,'(a)') &
-            '_______________________________________________________________________' // &
-            '___________________________________________________________________________'
-         write(*,*)
-         write(*,'(a)') &
-            '   a (rsun)      t_tide    Dr_drag   Dr_tides  &
-             R_influence   R_Bondi   R_Star    Dr_next    Dt_next   v_infall [km/s] '
-
-        write(*,fmt=fmt) Orbital_separation/Rsun, s% xtra(9), Deltar/Rsun,&
-         Deltar_tides/Rsun, R_influence/Rsun,R_bondi/Rsun,s% r(1)/Rsun, dr_next/Rsun, s% dt_next/Rsun, dr_next/s% dt_next/1d5
-         write(*,'(a)') &
-            '_______________________________________________________________________' // &
-            '___________________________________________________________________________'
-
-         ! to save a profile,
-            ! s% need_to_save_profiles_now = .true.
-         ! to update the star log,
-            ! s% need_to_update_history_now = .true.
-
-         ! see extras_check_model for information about custom termination codes
-         ! by default, indicate where (in the code) MESA terminated
-         if (extras_finish_step == terminate) s% termination_code = t_extras_finish_step
-      end function extras_finish_step
+         lim = tol*o% W/abs(o% dadt_drag)
+      end if
+      if (abs(o% dadt_tide) > 0d0) lim = min(lim, s% x_ctrl(7)*o% a/abs(o% dadt_tide))
+      dt_limit_now = lim
+      if (lim < s% dt_next) s% dt_next = lim
+   end subroutine limit_dt
 
 
+   ! Refinement around the companion: gval = N tanh((r - a)/W) puts ~N cells in each kernel half-width.
+   subroutine how_many_engulf_mesh_fcns(id, n)
+      integer, intent(in) :: id
+      integer, intent(out) :: n
+      n = 1
+   end subroutine how_many_engulf_mesh_fcns
 
-      subroutine extras_after_evolve(id, ierr)
-         integer, intent(in) :: id
-         integer, intent(out) :: ierr
-         type (star_info), pointer :: s
-         ierr = 0
-         call star_ptr(id, s, ierr)
-         if (ierr /= 0) return
-      end subroutine extras_after_evolve
-
-
-      ! routines for saving and restoring extra data so can do restarts
-
-         ! put these defs at the top and delete from the following routines
-         !integer, parameter :: extra_info_alloc = 1
-         !integer, parameter :: extra_info_get = 2
-         !integer, parameter :: extra_info_put = 3
-
-
-      subroutine alloc_extra_info(s)
-         integer, parameter :: extra_info_alloc = 1
-         type (star_info), pointer :: s
-         call move_extra_info(s,extra_info_alloc)
-      end subroutine alloc_extra_info
-
-
-      subroutine unpack_extra_info(s)
-         integer, parameter :: extra_info_get = 2
-         type (star_info), pointer :: s
-         call move_extra_info(s,extra_info_get)
-      end subroutine unpack_extra_info
-
-
-      subroutine store_extra_info(s)
-         integer, parameter :: extra_info_put = 3
-         type (star_info), pointer :: s
-         call move_extra_info(s,extra_info_put)
-      end subroutine store_extra_info
+   subroutine engulf_mesh_fcn_data(id, nfcns, names, gval_is_xa_function, vals1, ierr)
+      integer, intent(in) :: id
+      integer, intent(in) :: nfcns
+      character(len=*) :: names(:)
+      logical, intent(out) :: gval_is_xa_function(:)
+      real(dp), pointer :: vals1(:)
+      integer, intent(out) :: ierr
+      type(star_info), pointer :: s
+      real(dp), pointer :: vals(:, :)
+      real(dp) :: a, W
+      integer :: k, nz
+      ierr = 0
+      call star_ptr(id, s, ierr)
+      if (ierr /= 0) return
+      nz = s% nz
+      names(1) = 'engulf_refine'
+      gval_is_xa_function(1) = .false.
+      vals(1:nz, 1:nfcns) => vals1(1:nz*nfcns)
+      vals(1:nz, 1) = 0d0
+      if (s% x_ctrl(14) <= 0d0 .or. .not. s% lxtra(i_active)) return
+      a = s% xtra(i_a)
+      W = o_now% W
+      if (W <= 0d0) W = s% x_ctrl(2)*Rsun
+      if (a > s% r(1) + 3d0*W) return
+      do k = 1, nz
+         vals(k, 1) = s% x_ctrl(14)*tanh((s% r(k) - a)/W)
+      end do
+   end subroutine engulf_mesh_fcn_data
 
 
-      subroutine move_extra_info(s,op)
-         integer, parameter :: extra_info_alloc = 1
-         integer, parameter :: extra_info_get = 2
-         integer, parameter :: extra_info_put = 3
-         type (star_info), pointer :: s
-         integer, intent(in) :: op
+   ! ------------------------------------------------------------------------ step hooks
 
-         integer :: i, j, num_ints, num_dbls, ierr
+   subroutine extras_startup(id, restart, ierr)
+      integer, intent(in) :: id
+      logical, intent(in) :: restart
+      integer, intent(out) :: ierr
+      type(star_info), pointer :: s
+      real(dp) :: e, m_enc, dedx
+      ierr = 0
+      call star_ptr(id, s, ierr)
+      if (ierr /= 0) return
+      if (.not. restart) then
+         s% xtra(:) = 0d0
+         s% lxtra(:) = .false.
+         s% lxtra(i_active) = .true.
+         s% xtra(i_a) = s% x_ctrl(6)*Rsun
+         s% xtra(i_stop_age) = -1d0
+         call set_potential(s)
+         call e_orb_specific(s, s% xtra(i_a), e, m_enc, dedx)
+         s% xtra(i_E_orb0) = s% x_ctrl(1)*Msun*e
+      end if
+      call update_now(s)
+      ! the first step must obey the same orbital limits as the others (the loaded model's dt can be ~Myr)
+      if (.not. restart .and. s% lxtra(i_active)) call limit_dt(s, o_now)
+      write(*, '(a,f10.5,a,l2,a,es11.3,a)') ' engulfment: a =', s% xtra(i_a)/Rsun, ' Rsun, active =', &
+         s% lxtra(i_active), ', first dt =', s% dt_next/secyer, ' yr'
+   end subroutine extras_startup
 
-         i = 0
-         ! call move_int or move_flg
-         num_ints = i
 
-         i = 0
-         ! call move_dbl
-         ! (TAs) Important to understand what this is and what is done here. This is essential for MESA to remember Orbital_separation between timesteps
-         ! and to allow for restarts from photos
-         call move_dbl(Orbital_separation)
-         call move_dbl(total_energy_injected)
-         call move_dbl(stop_age)
-         num_dbls = i
+   ! Diagnostics at the committed separation on the current structure.
+   subroutine update_now(s)
+      type(star_info), pointer :: s
+      real(dp) :: e, m_enc, dedx
+      call set_potential(s)
+      call orbit_rates(s, s% xtra(i_a), o_now)
+      call e_orb_specific(s, s% xtra(i_a), e, m_enc, dedx)
+      E_orb_now = s% x_ctrl(1)*Msun*e
+   end subroutine update_now
 
-         if (op /= extra_info_alloc) return
-         if (num_ints == 0 .and. num_dbls == 0) return
 
-         ierr = 0
-         call star_alloc_extras(s% id, num_ints, num_dbls, ierr)
-         if (ierr /= 0) then
-            write(*,*) 'failed in star_alloc_extras'
-            write(*,*) 'alloc_extras num_ints', num_ints
-            write(*,*) 'alloc_extras num_dbls', num_dbls
-            stop 1
+   integer function extras_start_step(id)
+      integer, intent(in) :: id
+      extras_start_step = 0
+   end function extras_start_step
+
+
+   integer function extras_check_model(id)
+      integer, intent(in) :: id
+      extras_check_model = keep_going
+   end function extras_check_model
+
+
+   integer function extras_finish_step(id)
+      integer, intent(in) :: id
+      integer :: ierr, every
+      type(star_info), pointer :: s
+      real(dp) :: M2, e, m_enc, dedx, relax
+      ierr = 0
+      call star_ptr(id, s, ierr)
+      if (ierr /= 0) return
+      extras_finish_step = keep_going
+      M2 = s% x_ctrl(1)*Msun
+
+      ! MESA's own integral of what it received, and its energy error, for every step
+      s% xtra(i_E_heat_mesa) = s% xtra(i_E_heat_mesa) + s% total_extra_heating
+      s% xtra(i_E_err_mesa) = s% xtra(i_E_err_mesa) + s% error_in_energy_conservation
+
+      if (trial_model == s% model_number .and. s% lxtra(i_active)) then
+         s% xtra(i_a) = a_trial
+         s% xtra(i_E_drag) = s% xtra(i_E_drag) + dE_drag_trial
+         s% xtra(i_E_tide) = s% xtra(i_E_tide) + dE_tide_trial
+         s% xtra(i_E_tide_dep) = s% xtra(i_E_tide_dep) + dE_tide_dep_trial
+         s% xtra(i_E_heat_code) = s% xtra(i_E_heat_code) + heat_trial
+         ! E_orb at the new separation changes as the star evolves under the companion
+         call set_potential(s)
+         call e_orb_specific(s, a_trial, e, m_enc, dedx)
+         s% xtra(i_W_pot) = s% xtra(i_W_pot) + M2*(e - e_end_start_struct)
+         if (destroyed_trial) then
+            s% lxtra(i_active) = .false.
+            s% xtra(i_a_stop) = a_trial
+            relax = s% x_ctrl(12)
+            if (relax <= 0d0) relax = 10d0
+            s% xtra(i_stop_age) = s% star_age + relax*s% kh_timescale
+            write(*, '(a,a,a,f10.5,a,es11.3,a)') ' engulfment: companion destroyed (', trim(destroy_reason), &
+               ') at a =', a_trial/Rsun, ' Rsun; relaxing until age', s% xtra(i_stop_age), ' yr'
          end if
+      end if
+      trial_model = -1
 
-         contains
+      call update_now(s)
+      if (s% lxtra(i_active)) call limit_dt(s, o_now)
 
-         subroutine move_dbl(dbl)
-            real(dp) :: dbl
-            i = i+1
-            select case (op)
-            case (extra_info_get)
-               dbl = s% extra_work(i)
-            case (extra_info_put)
-               s% extra_work(i) = dbl
-            end select
-         end subroutine move_dbl
+      every = s% x_integer_ctrl(3)
+      if (every <= 0) every = 10
+      if (mod(s% model_number, every) == 0) &
+         write(*, '(a,i8,a,f10.5,a,es10.3,a,es10.3,a,f6.3,a,es10.3)') ' engulf', s% model_number, &
+            '  a/Rsun', s% xtra(i_a)/Rsun, '  L_drag/Lsun', o_now% P_drag/Lsun, &
+            '  E_dep', s% xtra(i_E_drag) + s% xtra(i_E_tide_dep), '  f_eng', o_now% f_p, &
+            '  (E_code-E_mesa)/E_dep', ledger_residual(s)
 
-         subroutine move_int(int)
-            integer :: int
-            i = i+1
-            select case (op)
-            case (extra_info_get)
-               int = s% extra_iwork(i)
-            case (extra_info_put)
-               s% extra_iwork(i) = int
-            end select
-         end subroutine move_int
+      if (s% xtra(i_stop_age) > 0d0 .and. s% star_age > s% xtra(i_stop_age)) then
+         write(*, *) 'engulfment: thermal relaxation after disruption complete'
+         extras_finish_step = terminate
+      end if
+      if (extras_finish_step == terminate) s% termination_code = t_extras_finish_step
+   end function extras_finish_step
 
-         subroutine move_flg(flg)
-            logical :: flg
-            i = i+1
-            select case (op)
-            case (extra_info_get)
-               flg = (s% extra_iwork(i) /= 0)
-            case (extra_info_put)
-               if (flg) then
-                  s% extra_iwork(i) = 1
-               else
-                  s% extra_iwork(i) = 0
-               end if
-            end select
-         end subroutine move_flg
 
-      end subroutine move_extra_info
+   ! Heat this code set vs heat MESA integrated, relative to the heat deposited.
+   real(dp) function ledger_residual(s)
+      type(star_info), pointer :: s
+      real(dp) :: dep
+      dep = s% xtra(i_E_heat_code)
+      if (dep > 0d0) then
+         ledger_residual = (s% xtra(i_E_heat_code) - s% xtra(i_E_heat_mesa))/dep
+      else
+         ledger_residual = 0d0
+      end if
+   end function ledger_residual
 
-      end module run_star_extras
+
+   subroutine extras_after_evolve(id, ierr)
+      integer, intent(in) :: id
+      integer, intent(out) :: ierr
+      ierr = 0
+   end subroutine extras_after_evolve
+
+
+   ! ------------------------------------------------------------------------ output
+
+   integer function how_many_extra_history_columns(id)
+      integer, intent(in) :: id
+      how_many_extra_history_columns = 36
+   end function how_many_extra_history_columns
+
+
+   subroutine data_for_extra_history_columns(id, n, names, vals, ierr)
+      integer, intent(in) :: id, n
+      character(len=maxlen_history_column_name) :: names(n)
+      real(dp) :: vals(n)
+      integer, intent(out) :: ierr
+      type(star_info), pointer :: s
+      real(dp) :: E_dep, M2
+      ierr = 0
+      call star_ptr(id, s, ierr)
+      if (ierr /= 0) return
+      M2 = s% x_ctrl(1)*Msun
+      E_dep = s% xtra(i_E_drag) + s% xtra(i_E_tide_dep)
+
+      names(1) = 'engulf_a';                vals(1) = s% xtra(i_a)/Rsun           ! Rsun
+      names(2) = 'engulf_active';           vals(2) = merge(1d0, 0d0, s% lxtra(i_active))
+      names(3) = 'engulf_v_orb';            vals(3) = o_now% v/1d5                ! km/s
+      names(4) = 'engulf_mach';             vals(4) = o_now% mach
+      names(5) = 'engulf_m_enc';            vals(5) = o_now% m_enc/Msun
+      names(6) = 'engulf_R_acc';            vals(6) = o_now% R_acc/Rsun
+      names(7) = 'engulf_f_eng_p';          vals(7) = o_now% f_p                  ! engulfed fraction, R_2
+      names(8) = 'engulf_f_eng_acc';        vals(8) = o_now% f_a                  ! engulfed fraction, R_acc
+      names(9) = 'engulf_rho';              vals(9) = o_now% rho
+      names(10) = 'engulf_C_d';             vals(10) = o_now% C_d
+      names(11) = 'engulf_C_g';             vals(11) = o_now% C_g
+      names(12) = 'engulf_F_drag';          vals(12) = o_now% F_drag              ! dyn
+      names(13) = 'engulf_L_drag';          vals(13) = o_now% P_drag/Lsun         ! Lsun
+      names(14) = 'engulf_L_tide';          vals(14) = o_now% P_tide/Lsun         ! Lsun
+      names(15) = 'engulf_t_inspiral';      vals(15) = safe_div(o_now% a, &
+                                               abs(o_now% dadt_drag + o_now% dadt_tide))/secyer
+      names(16) = 'engulf_t_tide';          vals(16) = o_now% t_tide/secyer
+      names(17) = 'engulf_f_ram';           vals(17) = o_now% f_ram
+      names(18) = 'engulf_f_roche';         vals(18) = o_now% f_roche
+      names(19) = 'engulf_kernel_W';        vals(19) = o_now% W/Rsun
+      names(20) = 'engulf_heated_mass';     vals(20) = heated_mass_trial/Msun
+      names(21) = 'engulf_nsub';            vals(21) = nsub_trial
+      names(22) = 'engulf_power_ratio';     vals(22) = P_ratio_trial   ! int P dt / Delta E_orb in last step
+      names(23) = 'engulf_dt_limit';        vals(23) = dt_limit_now/secyer
+      ! energy ledger (erg)
+      names(24) = 'engulf_E_orb';           vals(24) = E_orb_now      ! actual potential, current structure
+      names(25) = 'engulf_E_orb_pointmass'; vals(25) = -standard_cgrav*o_now% m_enc*M2/(2d0*s% xtra(i_a))
+      names(26) = 'engulf_E_drag_cum';      vals(26) = s% xtra(i_E_drag)
+      names(27) = 'engulf_E_tide_cum';      vals(27) = s% xtra(i_E_tide)
+      names(28) = 'engulf_E_tide_dep_cum';  vals(28) = s% xtra(i_E_tide_dep)
+      names(29) = 'engulf_E_heat_code_cum'; vals(29) = s% xtra(i_E_heat_code)
+      names(30) = 'engulf_E_heat_mesa_cum'; vals(30) = s% xtra(i_E_heat_mesa)
+      names(31) = 'engulf_W_pot_cum';       vals(31) = s% xtra(i_W_pot)
+      ! E_orb(t) - [E_orb(0) - E_drag - E_tide + W_pot]: zero unless the potential changes between steps
+      names(32) = 'engulf_orbit_ledger_resid'; vals(32) = E_orb_now - (s% xtra(i_E_orb0) - s% xtra(i_E_drag) &
+                                               - s% xtra(i_E_tide) + s% xtra(i_W_pot))
+      names(33) = 'engulf_heat_ledger_rel';  vals(33) = ledger_residual(s)   ! (code - MESA)/deposited
+      names(34) = 'engulf_E_err_mesa_cum';   vals(34) = s% xtra(i_E_err_mesa)
+      names(35) = 'engulf_E_err_rel_dep';    vals(35) = safe_div(s% xtra(i_E_err_mesa), E_dep)
+      names(36) = 'engulf_a_stop';           vals(36) = s% xtra(i_a_stop)/Rsun
+   contains
+      real(dp) function safe_div(a, b)
+         real(dp), intent(in) :: a, b
+         if (b /= 0d0) then
+            safe_div = a/b
+         else
+            safe_div = 0d0
+         end if
+      end function safe_div
+   end subroutine data_for_extra_history_columns
+
+
+   integer function how_many_extra_profile_columns(id)
+      integer, intent(in) :: id
+      how_many_extra_profile_columns = 1
+   end function how_many_extra_profile_columns
+
+
+   subroutine data_for_extra_profile_columns(id, n, nz, names, vals, ierr)
+      integer, intent(in) :: id, n, nz
+      character(len=maxlen_profile_column_name) :: names(n)
+      real(dp) :: vals(nz, n)
+      integer, intent(out) :: ierr
+      type(star_info), pointer :: s
+      integer :: k
+      ierr = 0
+      call star_ptr(id, s, ierr)
+      if (ierr /= 0) return
+      names(1) = 'engulf_heat'   ! erg/g/s
+      do k = 1, nz
+         vals(k, 1) = s% extra_heat(k)% val
+      end do
+   end subroutine data_for_extra_profile_columns
+
+
+   integer function how_many_extra_history_header_items(id)
+      integer, intent(in) :: id
+      how_many_extra_history_header_items = 0
+   end function how_many_extra_history_header_items
+
+
+   subroutine data_for_extra_history_header_items(id, n, names, vals, ierr)
+      integer, intent(in) :: id, n
+      character(len=maxlen_history_column_name) :: names(n)
+      real(dp) :: vals(n)
+      integer, intent(out) :: ierr
+      ierr = 0
+   end subroutine data_for_extra_history_header_items
+
+
+   integer function how_many_extra_profile_header_items(id)
+      integer, intent(in) :: id
+      how_many_extra_profile_header_items = 0
+   end function how_many_extra_profile_header_items
+
+
+   subroutine data_for_extra_profile_header_items(id, n, names, vals, ierr)
+      integer, intent(in) :: id, n
+      character(len=maxlen_profile_column_name) :: names(n)
+      real(dp) :: vals(n)
+      integer, intent(out) :: ierr
+      ierr = 0
+   end subroutine data_for_extra_profile_header_items
+
+end module run_star_extras

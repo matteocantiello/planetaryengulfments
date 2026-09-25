@@ -9,6 +9,11 @@ Started 2026-09-25. Procedure: `docs/MESA_UPGRADE_HANDOFF.md`.
 - Older copies were not ported: `legacy/r15140/refactor/` and `legacy/r15140/runs/` (r15140, the version stated in the paper draft) and
   `legacy/r21.12.1/test_highmass/`.
 
+## Status
+The source below was ported unchanged, then rewritten the same day for energy conservation (see
+`../LOG.md` and `../PLAN.md` Phase 2). The unchanged port is commit f2aa9f8. For the r22 comparison, build that
+commit's `src/`.
+
 ## How the template was built
 1. Copied a fresh `$MESA_DIR/star/work` (r26.04.1).
 2. `src/run_star_extras.f90` and `src/energy.f90` were copied from oconnor23 **unchanged**. They compile against r26

@@ -36,7 +36,11 @@ Remaining:
 - [ ] Reconcile the setup with O'Connor+23 as published. They report TDC with α_MLT = 2; our oconnor23 inlist
       has Cox. Their Zenodo inlists are at doi:10.5281/zenodo.7692746.
 
-## Phase 2 — Fix the code (the port is deliberately bug-compatible so Phase 1 is a clean comparison)
+## Phase 2 — Fix the code
+**Done 2026-09-25**: `template_r26.04.1/src` was rewritten; see LOG.md. All items below are fixed except 11
+(mesh refinement), which is implemented but not yet tested. The list is kept as a record of what was wrong in the
+r22 code.
+
 Problems found in `legacy/r22.05.1_oconnor23/src` (RSE = run_star_extras.f90, EN = energy.f90):
 
 **Energy bookkeeping**
@@ -90,6 +94,7 @@ Problems found in `legacy/r22.05.1_oconnor23/src` (RSE = run_star_extras.f90, EN
 per-step `write`s.
 
 ## Phase 3 — Energy-conservation and convergence tests (`tests/`)
+Status 2026-09-25: T1, T2 and T6 pass on grazing runs, and the physics cross-check passes. Still to do: a full run through the plunge and disruption; T3, T4, T5, T7.
 - **T1, code ledger.** Every step, ∑ extra_heat·dm·dt must equal the intended ΔE_orb to round-off. The cumulative
   injected energy must equal E_orb(a₀) − E_orb(a) with the same potential.
 - **T2, MESA ledger.** ΔE_star − (∫extra_heat − ∫L_surf − ∫L_ν + ∫L_nuc) must be ≈ 0, using
