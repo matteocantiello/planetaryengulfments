@@ -90,7 +90,9 @@
     x_integer_ctrl(2) = 2  ! kernel (2 = O'Connor+23 setup, alpha = x_ctrl(9) = 1): 1 |r-a|<R_inf, 2 |r-a|<R_2+alpha H_P, 3 |r-a|<H_P/2, 4 Gaussian(R_inf)
     x_integer_ctrl(3) = 10 ! terminal output every N models
     x_integer_ctrl(4) = 1  ! outflow: 0 none, 1 A (energy-limited prescription), 2 B (hydro, remove unbound gas)
-    x_ctrl(15) = 1.0       ! f_w, efficiency of option A -- PROVISIONAL until calibrated against option B
+    x_integer_ctrl(5) = 1  ! option A form: 1 constant fraction epsilon, 2 Gamma-limited
+    x_ctrl(15) = 0.2       ! epsilon, fraction of drag power into ejection -- PROVISIONAL (Yang+26: ~0.15-0.4),
+                           ! calibration on 3D/SPH engulfment and common-envelope simulations in progress
     x_ctrl(16) = 1.0       ! beta = v_inf / v_esc,surf of the option-A outflow
     x_ctrl(17) = -1        ! while in contact, max dt / t_dyn of the star (<= 0 off; ~0.1 to resolve hydro, option B)
     x_logical_ctrl(1) = .false. ! tides also when a < R_*

@@ -1,6 +1,12 @@
 ! Mass loss driven by the companion.
 !
-! Option A (x_integer_ctrl(4) = 1): energy-limited outflow prescription.
+! Option A (x_integer_ctrl(4) = 1): mechanical-ejection prescription. A fraction f_wind of the drag power
+!   unbinds surface gas instead of heating, Mdot = f_wind P_drag / e_lift (below). Two forms (x_integer_ctrl(5)):
+!   1 (default): f_wind = epsilon = x_ctrl(15), constant. In multi-D a large fraction of the orbital energy goes
+!     into bulk motion of gas pushed by the companion's wake and shocks, which a 1D spherical heat source
+!     cannot reproduce (option B vs Yang+26: >10x too little ejecta, 2026-09-25). epsilon is calibrated on
+!     3D/SPH engulfment and common-envelope simulations.
+!   2: f_wind = epsilon * max(0, 1 - 1/Gamma), with Gamma below (switches ejection off in quasi-static regimes).
 !   Gamma = P_drag * t_cross / E_bind compares the drag energy deposited in one sound-crossing time of the
 !   overlying column (t_cross, the time for the layers to readjust hydrostatically) with the binding energy
 !   E_bind of the heated region and all the gas above it (r > a - W, W the kernel half-width). Gamma > 1 means

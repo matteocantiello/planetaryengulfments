@@ -161,3 +161,18 @@
   - Yang's gas is also adiabatic (no cooling), which favours ejection.
   - Consequence: A has to be a **mechanical-ejection prescription calibrated directly to 3D**, not to B.
     Γ(t_cross) = 2e-3 here, so the current A gives no outflow either.
+- **Option A recast.** Constant mechanical fraction ε of the drag power (x_integer_ctrl(5) = 1, default), or
+  Γ-limited (= 2). Provisional ε = 0.2.
+  - `yang_Amech` (ε = 0.2, dt ≤ 0.1 t_dyn), in progress at 8.7 yr: removed 2.6e-5 M_sun (Yang unbound 1.5–2e-3).
+  - Ledger closes (E_wind withheld exactly; MESA error 5e-4 of injected).
+  - The orbit ledger residual (4.6e-4) now includes the E_orb change from mass removed between steps. It should
+    be folded into W_pot.
+  - e_lift = (1 + β²) GM/R − u overcharges the ejecta compared with the Bernoulli deficit used in 3D.
+- **Literature searches** (SPH CE, grid CE, 1D + α formalism, LRN light curves) are summarised in
+  `docs/ejection_calibration_literature.md`. The main points:
+  - Dynamical ejecta come from the outer layers and are locally energy-limited: δE_orb + δE_bind = 0
+    (Ivanova & Nandez 2016). Yang's planet case gives ε ≈ 1 against the Bernoulli deficit.
+  - Deeper deposition has ε ≈ 0.02–0.3 (Ricker & Taam 2012: 0.25).
+  - Brown-dwarf post-CE α = 0.24–0.41.
+  - Light curves: multi-shell Matsumoto & Metzger 2022.
+  - This leads to prescription v2: an outer, Bernoulli-limited channel plus a deep ε channel.

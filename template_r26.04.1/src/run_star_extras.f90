@@ -28,7 +28,8 @@
 !   x_integer_ctrl(3) terminal output every this many models (<= 0: 10)
 !   x_integer_ctrl(4) outflow: 0 none, 1 option A (energy-limited prescription), 2 option B (hydrodynamic;
 !                     remove unbound surface gas). Needs use_other_adjust_mdot = .true. (outflow.f90)
-!   x_ctrl(15) f_w, efficiency of option A      x_ctrl(16) beta = v_inf / v_esc,surf of the outflow (A)
+!   x_integer_ctrl(5) form of option A: 1 constant fraction epsilon (default), 2 Gamma-limited
+!   x_ctrl(15) epsilon, fraction of the drag power into ejection (option A)      x_ctrl(16) beta = v_inf / v_esc,surf of the outflow (A)
 !   x_ctrl(17) while in contact, max dt in units of the star's dynamical time sqrt(R^3/GM); <= 0: off
 !              (needed to resolve the hydrodynamic response, e.g. for option B)
 !   x_logical_ctrl(1) tides also when a < R_*            x_logical_ctrl(2) deposit tidal heat in the envelope
@@ -350,7 +351,11 @@ contains
          else
             Gamma_now = huge(1d0)
          end if
-         f_wind_now = min(1d0, s% x_ctrl(15)*max(0d0, 1d0 - 1d0/Gamma_now))
+         if (s% x_integer_ctrl(5) == 2) then
+            f_wind_now = min(1d0, s% x_ctrl(15)*max(0d0, 1d0 - 1d0/Gamma_now))
+         else
+            f_wind_now = min(1d0, max(0d0, s% x_ctrl(15)))
+         end if
          e_lift = surface_lift_energy(s, s% x_ctrl(16))
          mdot_eng = min(f_wind_now*o% P_drag/e_lift, 0.5d0*M_above_now/s% dt)
       case (2)
