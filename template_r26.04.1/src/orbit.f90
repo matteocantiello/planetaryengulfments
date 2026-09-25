@@ -24,6 +24,7 @@ module engulf_orbit
       real(dp) :: f_p = 0, f_a = 0               ! engulfed fraction of the physical / accretion cross section
       real(dp) :: rho = 0                        ! mass-weighted mean density over |r-a| < R_inf
       real(dp) :: C_d = 0, C_g = 0, F_drag = 0
+      real(dp) :: grav_share = 0                 ! C_g pi R_acc^2 f_a / (C_d pi R_2^2 f_p + C_g pi R_acc^2 f_a)
       real(dp) :: P_drag = 0, P_tide = 0         ! erg/s dissipated by drag / tides
       real(dp) :: t_tide = 0                     ! s (0 = no tides)
       real(dp) :: dedx = 0                       ! d e_orb / da, erg/g/cm
@@ -111,6 +112,7 @@ contains
       end if
       A_p = o% C_d*pi*R2*R2*o% f_p
       A_a = o% C_g*pi*o% R_acc*o% R_acc*o% f_a
+      if (A_p + A_a > 0d0) o% grav_share = A_a/(A_p + A_a)
       select case (s% x_integer_ctrl(1))
       case (0)
          o% F_drag = o% rho*o% v*o% v*pi*o% R_inf*o% R_inf*intercepted_fraction(x, o% R_inf, R_star)

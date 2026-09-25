@@ -7,6 +7,14 @@
 !     cannot reproduce (option B vs Yang+26: >10x too little ejecta, 2026-09-25). epsilon is calibrated on
 !     3D/SPH engulfment and common-envelope simulations.
 !   2: f_wind = epsilon * max(0, 1 - 1/Gamma), with Gamma below (switches ejection off in quasi-static regimes).
+!   3 (v2): local energy-limited ejection of the gas outside the orbit (Ivanova et al. 2013; Ivanova & Nandez
+!     2016, Eq. 32: delta E_orb(r) + delta E_bind(r) = 0). While the drag energy released so far exceeds the
+!     binding energy of the gas outside the orbit (r > min(a, R_* - R_inf)) plus the energy already spent on
+!     ejection, f_wind = eps_out
+!     (x_ctrl(18), default 1); otherwise f_wind = eps_deep + eps_wake * grav_share (x_ctrl(19), x_ctrl(20);
+!     default 0, 0), grav_share being the gravitational share of the drag force. The ejected gas costs its
+!     Bernoulli deficit (surface_bernoulli_lift). Reproduces the SPH unbound mass of a hot Jupiter in a
+!     1 Msun / 4 Rsun giant (Lau+25) to within ~2 on the unperturbed profile (2026-09-25).
 !   Gamma = P_drag * t_cross / E_bind compares the drag energy deposited in one sound-crossing time of the
 !   overlying column (t_cross, the time for the layers to readjust hydrostatically) with the binding energy
 !   E_bind of the heated region and all the gas above it (r > a - W, W the kernel half-width). Gamma > 1 means
@@ -33,7 +41,7 @@ module engulf_outflow
    implicit none
 
    private
-   public :: overlying_envelope, surface_lift_energy, unbound_surface_mass
+   public :: overlying_envelope, surface_lift_energy, surface_bernoulli_lift, unbound_surface_mass
 
 contains
 
@@ -77,6 +85,20 @@ contains
       e = phi - s% energy(1) - 0.5d0*v2 + beta*beta*phi
       e = max(e, 1d-3*phi)
    end function surface_lift_energy
+
+   ! Energy per unit mass to unbind surface gas and give it v_inf = beta v_esc,surf: its Bernoulli deficit
+   ! -(v^2/2 + u + P/rho - G m/r) plus beta^2 G m/r (with a floor of 1e-3 G m/r).
+   real(dp) function surface_bernoulli_lift(s, beta) result(e)
+      type(star_info), pointer :: s
+      real(dp), intent(in) :: beta
+      real(dp) :: v2, phi
+      v2 = 0d0
+      if (s% v_flag) v2 = s% v(1)*s% v(1)
+      phi = standard_cgrav*s% m(1)/s% r(1)
+      e = phi - s% energy(1) - s% Peos(1)/s% rho(1) - 0.5d0*v2 + beta*beta*phi
+      e = max(e, 1d-3*phi)
+   end function surface_bernoulli_lift
+
 
    ! Mass (g) in the outermost contiguous cells that are unbound (Bernoulli parameter
    ! v^2/2 + u + P/rho - G m/r > 0) and moving outward; also their total energy (u + v^2/2 - G m/r) dm.

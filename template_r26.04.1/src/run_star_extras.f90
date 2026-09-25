@@ -28,7 +28,11 @@
 !   x_integer_ctrl(3) terminal output every this many models (<= 0: 10)
 !   x_integer_ctrl(4) outflow: 0 none, 1 option A (energy-limited prescription), 2 option B (hydrodynamic;
 !                     remove unbound surface gas). Needs use_other_adjust_mdot = .true. (outflow.f90)
-!   x_integer_ctrl(5) form of option A: 1 constant fraction epsilon (default), 2 Gamma-limited
+!   x_integer_ctrl(5) form of option A: 1 constant fraction epsilon, 2 Gamma-limited, 3 (v2, default) local
+!                     energy-limited ejection of the gas outside the orbit (outflow.f90)
+!   x_ctrl(18) eps_out, form 3 (default 1)      x_ctrl(19) eps_deep, form 3 (default 0)
+!   x_ctrl(20) eps_wake, form 3: extra deep-channel fraction times the gravitational share of the drag
+!              (energy carried outward by the wake of a gravitational-drag-dominated companion; default 0)
 !   x_ctrl(15) epsilon, fraction of the drag power into ejection (option A)      x_ctrl(16) beta = v_inf / v_esc,surf of the outflow (A)
 !   x_ctrl(17) while in contact, max dt in units of the star's dynamical time sqrt(R^3/GM); <= 0: off
 !              (needed to resolve the hydrodynamic response, e.g. for option B)
@@ -44,7 +48,7 @@ module run_star_extras
    use engulf_potential, only: set_potential, e_orb_specific
    use engulf_orbit, only: orbit_info, orbit_rates
    use engulf_heating, only: add_kernel_heat, envelope_weights
-   use engulf_outflow, only: overlying_envelope, surface_lift_energy, unbound_surface_mass
+   use engulf_outflow, only: overlying_envelope, surface_lift_energy, surface_bernoulli_lift, unbound_surface_mass
 
    implicit none
 
@@ -84,7 +88,9 @@ module run_star_extras
    ! outflow set in engulf_adjust_mdot for the current step attempt
    integer :: mdot_model = -1
    real(dp) :: mdot_eng = 0, e_lift = 0, Gamma_now = 0, f_wind_now = 0, E_bind_now = 0, M_above_now = 0, &
-      t_th_now = 0, t_cross_now = 0, E_unb_trial = 0, E_wind_trial = 0, E_unfunded_trial = 0
+      t_th_now = 0, t_cross_now = 0, E_unb_trial = 0, E_wind_trial = 0, E_unfunded_trial = 0, &
+      E_bind_orbit_now = 0, M_above_orbit_now = 0, rule_margin_now = 0, dW_start_trial = 0
+   integer :: wind_channel_now = 0     ! form 3: 1 outer (energy-limited), 2 deep
 
 contains
 
@@ -150,6 +156,9 @@ contains
 
       call set_potential(s)
       call orbit_rates(s, a0, o_step)
+      ! E_orb at a0 changes between steps (remeshing, mass removed at the surface): book it in W_pot
+      call e_orb_specific(s, a0, e0, m_enc, dedx)
+      dW_start_trial = M2*e0 - E_orb_now
 
       rate = abs(o_step% dadt_drag + o_step% dadt_tide)
       nsub = max(1, nint(s% x_ctrl(13)))
@@ -351,12 +360,30 @@ contains
          else
             Gamma_now = huge(1d0)
          end if
-         if (s% x_integer_ctrl(5) == 2) then
+         select case (s% x_integer_ctrl(5))
+         case (2)
             f_wind_now = min(1d0, s% x_ctrl(15)*max(0d0, 1d0 - 1d0/Gamma_now))
-         else
+            e_lift = surface_lift_energy(s, s% x_ctrl(16))
+         case (3)
+            ! Ivanova & Nandez 2016 Eq. 32, time dependent: the gas outside the orbit is ejected while the
+            ! drag energy released so far exceeds its binding energy plus what the ejection already used
+            ! gas outside the orbit (Ivanova & Nandez 2016); while grazing, the surface layer the companion
+            ! ploughs, r > R_* - R_inf
+            call overlying_envelope(s, max(min(s% xtra(i_a), s% r(1) - o% R_inf), s% R_center), E_bind_orbit_now, &
+               M_above_orbit_now, t_cross_now, t_th_now)
+            rule_margin_now = s% xtra(i_E_drag) - s% xtra(i_E_wind) - E_bind_orbit_now
+            if (rule_margin_now >= 0d0 .and. M_above_orbit_now > 0d0) then
+               wind_channel_now = 1
+               f_wind_now = min(1d0, max(0d0, s% x_ctrl(18)))
+            else
+               wind_channel_now = 2
+               f_wind_now = min(1d0, max(0d0, s% x_ctrl(19) + s% x_ctrl(20)*o% grav_share))
+            end if
+            e_lift = surface_bernoulli_lift(s, s% x_ctrl(16))
+         case default
             f_wind_now = min(1d0, max(0d0, s% x_ctrl(15)))
-         end if
-         e_lift = surface_lift_energy(s, s% x_ctrl(16))
+            e_lift = surface_lift_energy(s, s% x_ctrl(16))
+         end select
          mdot_eng = min(f_wind_now*o% P_drag/e_lift, 0.5d0*M_above_now/s% dt)
       case (2)
          call unbound_surface_mass(s, M_unb, E_unb_trial)
@@ -448,7 +475,7 @@ contains
          ! E_orb at the new separation changes as the star evolves under the companion
          call set_potential(s)
          call e_orb_specific(s, a_trial, e, m_enc, dedx)
-         s% xtra(i_W_pot) = s% xtra(i_W_pot) + M2*(e - e_end_start_struct)
+         s% xtra(i_W_pot) = s% xtra(i_W_pot) + M2*(e - e_end_start_struct) + dW_start_trial
          if (destroyed_trial) then
             s% lxtra(i_active) = .false.
             s% xtra(i_a_stop) = a_trial
@@ -536,7 +563,7 @@ contains
 
    integer function how_many_extra_history_columns(id)
       integer, intent(in) :: id
-      how_many_extra_history_columns = 53
+      how_many_extra_history_columns = 58
    end function how_many_extra_history_columns
 
 
@@ -612,6 +639,12 @@ contains
       names(51) = 'engulf_Munb_1R0';         vals(51) = s% xtra(i_Mflux_unb)/Msun
       names(52) = 'engulf_Munb_2R0';         vals(52) = s% xtra(i_Mflux_unb+1)/Msun
       names(53) = 'engulf_Munb_4R0';         vals(53) = s% xtra(i_Mflux_unb+2)/Msun
+      ! option A form 3 (v2)
+      names(54) = 'engulf_wind_channel';     vals(54) = wind_channel_now          ! 1 outer, 2 deep
+      names(55) = 'engulf_E_bind_orbit';     vals(55) = E_bind_orbit_now          ! binding of gas outside a
+      names(56) = 'engulf_M_above_orbit';    vals(56) = M_above_orbit_now/Msun
+      names(57) = 'engulf_rule_margin';      vals(57) = rule_margin_now           ! E_drag - E_wind - E_bind(>a)
+      names(58) = 'engulf_grav_share';       vals(58) = o_now% grav_share
    contains
       real(dp) function safe_div(a, b)
          real(dp), intent(in) :: a, b

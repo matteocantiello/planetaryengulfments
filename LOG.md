@@ -180,3 +180,22 @@
   - Six status figures in `docs/figures/` (`analysis/make_status_figures.py`): energy conservation, r22 bugs,
     10 R_sun old vs new, 1D vs Yang+26 ejecta, literature unbound fraction vs q, AGB200 + 10 M_J.
   - All day-1 runs archived to Ceph `runs/2026-09-25/`. The `runs` symlink is in the repo and git-ignored.
+- **Option A v2 (form 3, now default).** Time-dependent version of Ivanova & Nandez 2016 Eq. 32.
+  - While E_drag,cum − E_wind,cum ≥ E_bind(gas outside min(a, R* − R_inf)), a fraction ε_out (x_ctrl(18) = 1) of
+    the drag power removes surface gas at its **Bernoulli** cost. Otherwise ε_deep (x_ctrl(19) = 0) +
+    ε_wake·grav_share (x_ctrl(20) = 0).
+  - Default β = 0 (just unbound).
+  - W_pot now also books the E_orb change between steps (e.g. surface mass removal).
+  - Regression with the outflow off: bit-identical.
+- **Static rule on unperturbed profiles:**
+  - 4 R_sun + 1 M_J: 8e-6 M_sun (Lau+25 SPH 0.8–2e-5), about ×2.
+  - 10 R_sun: 1e-5 / 1e-4 / 2.8e-4 / 1.2e-3 M_sun for 1 / 5 / 10 / 30 M_J.
+  - 100 R_sun and AGB200: 0. Consistent with our option B runs and with O'Connor+23.
+  - Yang+26 (eccentric, gravitational drag) is the outlier with ~1.7e-3 M_sun unbound.
+- **Time-dependent validation** (`v2b_rg10_10MJ`, 1M10R + 10 M_J): outer channel on down to a = 9.80 R_sun,
+  1.27e-4 M_sun removed vs 2.8e-4 static. Within ×2.2; the star inflates during grazing.
+- `v2_1M4R` (compact host): stalls numerically once the outer layer is being removed, the same stiffness as
+  before. Parked.
+- `v2_yang` (Yang host, circular, ε_deep = 0): no ejection, as the rule predicts.
+- **Hypothesis under test:** gravitational-drag-dominated companions eject through their wake even when deep
+  (Yang+26). New ε_wake·grav_share term; `v2_yang_wake` runs with ε_wake = 0.25.
