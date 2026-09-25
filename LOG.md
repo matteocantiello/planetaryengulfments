@@ -45,3 +45,14 @@
     - ∫P dt / ΔE_orb = 1.000000.
   - check_orbit_physics: the Python recomputation agrees with the Fortran to ≤ 3e-14 for every quantity.
   - Restart from a photo: bit-identical.
+- Full-run test (1M4R, a₀ = 4.25 R_sun, still running in local scratch: `full_1M4R`):
+  - At model 450 it is fully engulfed at a = 4.14 R_sun, and the ledger still passes (T1a 3e-14, T2 2e-5).
+  - Progress is slow for a reason unrelated to the energy code. With L_drag ≈ 64 L_sun > L_* the outer layers
+    reach v/c_s ≈ 0.95. MESA's hydro solver retries on dlogT / min logT in the envelope, and dt drops to about
+    2e-4 yr while t_inspiral ≈ 60 yr, so of order 10⁵ models remain.
+  - This is the surface/outflow item in PLAN.md Phase 4, and it needs a decision on the outer boundary and
+    ejecta treatment.
+- Found `MESA-Engulf/` in the repo root: a clone of github.com/matteocantiello/MESA-Engulf (Nov 2023, r23.05.1).
+  - It is a modular refactor of the r21.12.1 test_highmass lineage with the draft's drag law (C=1). It has no
+    physics beyond oconnor23's, and it fixes only the α·H_P normalisation.
+  - It has not been added to this repo; it is left in place pending a decision.
