@@ -1,9 +1,12 @@
 ! Mass loss driven by the companion.
 !
 ! Option A (x_integer_ctrl(4) = 1): energy-limited outflow prescription.
-!   Gamma = P_drag * t_th / E_bind compares the drag energy deposited while heat diffuses to the surface (t_th)
-!   with the binding energy E_bind of the heated region and all the gas above it (r > a - W, W the kernel
-!   half-width).
+!   Gamma = P_drag * t_cross / E_bind compares the drag energy deposited in one sound-crossing time of the
+!   overlying column (t_cross, the time for the layers to readjust hydrostatically) with the binding energy
+!   E_bind of the heated region and all the gas above it (r > a - W, W the kernel half-width). Gamma > 1 means
+!   heat arrives faster than the envelope can respond quasi-statically (cf. O'Connor+23 Eqs. 30, 36).
+!   (A first version used the thermal time t_th instead; it predicted strong outflows in quasi-static
+!   convective envelopes where option B finds no unbound gas, 2026-09-25.)
 !   A fraction f_w * max(0, 1 - 1/Gamma) of the drag power (f_w = x_ctrl(15)) goes into unbinding surface gas
 !   instead of heating:
 !       Mdot = P_wind / e_lift,   e_lift = -(u + v^2/2 - G M/R)_surface + (beta^2/2) v_esc,surf^2
@@ -29,16 +32,18 @@ module engulf_outflow
 contains
 
    ! Binding energy (erg, > 0 if bound) of the gas above separation x, sum of (G m/r - u - v^2/2) dm,
-   ! its mass, and the time for heat to diffuse from x to the surface, sum of c_P T dm / L_surf.
-   subroutine overlying_envelope(s, x, E_bind, M_above, t_th)
+   ! its mass, the sound-crossing time from x to the surface, sum of dr/c_s, and the time for heat to
+   ! diffuse from x to the surface, sum of c_P T dm / L_surf.
+   subroutine overlying_envelope(s, x, E_bind, M_above, t_cross, t_th)
       type(star_info), pointer :: s
       real(dp), intent(in) :: x
-      real(dp), intent(out) :: E_bind, M_above, t_th
+      real(dp), intent(out) :: E_bind, M_above, t_cross, t_th
       integer :: k, kx
       real(dp) :: v2
       kx = cell_containing(s, x)
       E_bind = 0d0
       M_above = 0d0
+      t_cross = 0d0
       t_th = 0d0
       do k = 1, kx
          v2 = 0d0
@@ -46,6 +51,7 @@ contains
          E_bind = E_bind + (standard_cgrav*s% m(k)/s% r(k) - s% energy(k) - 0.5d0*v2)*s% dm(k)
          M_above = M_above + s% dm(k)
          t_th = t_th + s% cp(k)*s% T(k)*s% dm(k)
+         if (k < s% nz) t_cross = t_cross + (s% r(k) - s% r(k+1))/s% csound(k)
       end do
       if (s% L(1) > 0d0) then
          t_th = t_th/s% L(1)

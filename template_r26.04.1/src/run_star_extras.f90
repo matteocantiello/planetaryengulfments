@@ -78,7 +78,7 @@ module run_star_extras
    ! outflow set in engulf_adjust_mdot for the current step attempt
    integer :: mdot_model = -1
    real(dp) :: mdot_eng = 0, e_lift = 0, Gamma_now = 0, f_wind_now = 0, E_bind_now = 0, M_above_now = 0, &
-      t_th_now = 0, E_unb_trial = 0, E_wind_trial = 0, E_unfunded_trial = 0
+      t_th_now = 0, t_cross_now = 0, E_unb_trial = 0, E_wind_trial = 0, E_unfunded_trial = 0
 
 contains
 
@@ -336,9 +336,10 @@ contains
          call orbit_rates(s, s% xtra(i_a), o)
          if (o% P_drag <= 0d0) return
          ! the gas that must be unbound: the heated region and everything above it
-         call overlying_envelope(s, max(s% xtra(i_a) - o% W, s% R_center), E_bind_now, M_above_now, t_th_now)
+         call overlying_envelope(s, max(s% xtra(i_a) - o% W, s% R_center), E_bind_now, M_above_now, &
+            t_cross_now, t_th_now)
          if (E_bind_now > 0d0) then
-            Gamma_now = o% P_drag*t_th_now/E_bind_now
+            Gamma_now = o% P_drag*t_cross_now/E_bind_now
          else
             Gamma_now = huge(1d0)
          end if
@@ -495,7 +496,7 @@ contains
 
    integer function how_many_extra_history_columns(id)
       integer, intent(in) :: id
-      how_many_extra_history_columns = 46
+      how_many_extra_history_columns = 47
    end function how_many_extra_history_columns
 
 
@@ -563,6 +564,7 @@ contains
       names(44) = 'engulf_E_bind_above';     vals(44) = E_bind_now
       names(45) = 'engulf_M_above';          vals(45) = M_above_now/Msun
       names(46) = 'engulf_t_th';             vals(46) = t_th_now/secyer
+      names(47) = 'engulf_t_cross';          vals(47) = t_cross_now/secyer
    contains
       real(dp) function safe_div(a, b)
          real(dp), intent(in) :: a, b

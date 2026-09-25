@@ -99,3 +99,20 @@
   a09) came from oconnor23, where it matches the rgb/agb models. The 1M10R runs use Zbase = 0.02 with gs98.
   The template default still needs a decision.
 - Running: rg10_A (1M10R + 1 M_J, option A) and rg10_B (option B), for the A/B calibration.
+- **Option A, first version, rejected.** Γ with the thermal time t_th in `rg10_A` switched on at a = 9.35 R_sun
+  (t_th = 3.3 yr) and sent all drag power (1e4 L_sun) into the outflow. L collapsed to 1.2 L_sun and dt fell to
+  5e-10 yr. Run stopped.
+- **Option B at 10 R_sun (`rg10_B`)**, complete, 870 models:
+  - quasi-static (surface v/c_s <= 0.016);
+  - **no unbound gas**;
+  - L peak 59.7 L_sun (from 36.2), R max 10.46 R_sun;
+  - Roche disruption at 1.33 R_sun.
+  - Ledger: code vs MESA heat 6.5e-14; MESA energy error 7e-7 of 9.4e44 erg; orbit ledger 5e-9.
+  - This agrees with O'Connor+23 (RGB + M_J engulfments are quasi-static).
+- **Option A revised:** Γ = P_drag t_cross / E_bind, where t_cross is the sound-crossing time of the overlying
+  column (the hydrostatic readjustment time; cf. O'Connor+23 Eqs. 30, 36). On the same case (`rg10_A2`), Γ stays
+  below 7e-4 through the plunge, so there is no outflow, consistent with B.
+- **Option B on O'Connor's AGB200 + 10 M_J** (`agb200_10MJ_B`), in progress:
+  - after 24 yr, R 203 → 404 R_sun, L 4.1e3 → 1.6e4 L_sun;
+  - surface v/c_s = 1.5 (supersonic), but no gas is unbound yet (O'Connor: expansion reaches about 0.4 v_esc).
+  - This is the dynamical regime needed to calibrate A.
