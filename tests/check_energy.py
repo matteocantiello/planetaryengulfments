@@ -50,7 +50,9 @@ def check(run):
         print(f"    mass removed by the engulfment outflow: {h['engulf_M_wind_cum'][last]:.3e} Msun")
 
     # T1c: orbit ledger; residual only from potential changes between steps (e.g. remeshing)
-    resid = h["engulf_orbit_ledger_resid"]
+    # (only while the companion orbits: afterwards E_orb is evaluated on a relaxing star with nothing booked)
+    act = h["engulf_active"] == 1
+    resid = h["engulf_orbit_ledger_resid"][act] if act.any() else np.zeros(1)
     released = E_drag[last] + E_tide[last]
     rel1c = np.abs(resid).max() / max(released, 1e-300)
     print(f"T1c orbit ledger: max |resid| / released {rel1c:.2e}; W_pot / released "

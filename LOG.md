@@ -86,3 +86,16 @@
   - The retries are Newton divergences (log T < 1, > 12, |Δlog T| > 99) in a thin, T-inverted, compressed shell
     at the old photosphere (H ionisation zone). This points to numerical stiffness.
   - Earlier statement corrected: the flow is not near-sonic (max v/c_s = 0.007); I misread a terminal column.
+- Stopped the 4 R_sun runs (full_1M4R, A_1M4R) at the user's request. Work now focuses on larger radii.
+- **10 R_sun regression** (`rg10_draftlaw`: r15140 model 1msun_rg_10, draft drag law, old settings):
+  - Complete run (tides → grazing → plunge → disruption → 10 t_KH relaxation) in 949 models and 22 min.
+    The old r15140 run took 920 models.
+  - Disrupted by **Roche-lobe overflow** at a = 1.34 R_sun. The old code had only the ram-pressure criterion
+    and went on to 0.65 R_sun. f_ram along the trajectory agrees between old and new (0.25 at 1.34–1.36 R_sun).
+  - Ledger: code vs MESA heat 6e-14 per step; MESA energy error 1.4e-6 of 9.4e44 erg injected; orbit ledger
+    2e-7 while active.
+  - check_energy.py now evaluates the orbit ledger only while the companion is active.
+- Note: the 1 M_sun models (1M4R, 1M10R, 1M80R) have Z = 0.02, but the template kap setting (Zbase = 0.0142,
+  a09) came from oconnor23, where it matches the rgb/agb models. The 1M10R runs use Zbase = 0.02 with gs98.
+  The template default still needs a decision.
+- Running: rg10_A (1M10R + 1 M_J, option A) and rg10_B (option B), for the A/B calibration.
