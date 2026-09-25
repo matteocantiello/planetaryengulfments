@@ -146,3 +146,18 @@
     1.5e-4 M_sun (Yang 2–3e-3); unbound 0; L 1219 → 1239 L_sun.
   - Γ_max (A) = 2e-3.
 - Running: `yang_B_dyn` with dt ≤ 0.1 t_dyn.
+- **Resolved B vs Yang+26** (`yang_B_dyn`: dt ≤ 0.1 t_dyn, 3161 models; ledger passes, MESA energy error
+  3.4e-5 of injected):
+  - Inspiral 95 → 30 R_sun takes 15.8 yr = 314 t_dyn (circular). Yang takes ~170 t_dyn (eccentric, e = 0.65,
+    deeper pericentre passages). The orbit agrees with the unresolved run.
+  - Ejected through R0: 1.6e-4 M_sun (Yang 2–3e-3); through 2 and 4 R0: 0; unbound: 0 (Yang ~1e-3).
+    R +1%, L +2% (Yang: peaks up to a few × 10³ L*).
+  - **B does not reproduce the 3D ejecta; it is short by more than 10× in ejected mass and gives zero unbound
+    mass.**
+  - Reason: ejecting 2.5e-3 M_sun from R* takes ≳ G M M_ej / R* ≈ 1e44 erg, about half of the 2.4e44 erg
+    released down to 0.3 R*. In 3D that energy goes into bulk motion through the planet's wake and shocks,
+    concentrated near the planet. In 1D it becomes heat spread over a whole spherical shell, and the convective
+    envelope carries it away (L_drag ≲ L*).
+  - Yang's gas is also adiabatic (no cooling), which favours ejection.
+  - Consequence: A has to be a **mechanical-ejection prescription calibrated directly to 3D**, not to B.
+    Γ(t_cross) = 2e-3 here, so the current A gives no outflow either.
