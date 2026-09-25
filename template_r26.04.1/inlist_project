@@ -1,0 +1,99 @@
+! Planet/companion engulfment, MESA r26.04.1.
+! Ported 2026-09-25 from oconnor23/inlist_project (MESA r22.05.1, O'Connor et al. 2023 setup).
+! See PORTING_NOTES.md for every change made in the port.
+
+&star_job
+  ! see star/defaults/star_job.defaults
+
+    load_saved_model = .true.
+    load_model_filename = 'starting_models/1M4R.mod' ! agb200 rgb10 1M80R 1M4R ...
+
+    set_initial_age = .true.
+    initial_age = 0
+    set_initial_model_number = .true.
+    initial_model_number = 0
+
+    history_columns_file = 'history_columns.list'
+    profile_columns_file = 'profile_columns.list'
+
+  ! hydrodynamics: velocity variables on
+    change_v_flag = .true.
+    change_initial_v_flag = .false.
+    new_v_flag = .true.
+
+    pgstar_flag = .false. ! .true. for on-screen plots (inlist_pgstar)
+
+/ ! end of star_job namelist
+
+
+&eos
+  ! see eos/defaults/eos.defaults
+
+/ ! end of eos namelist
+
+
+&kap
+  ! see kap/defaults/kap.defaults
+  ! As in r22.05.1: a09 for the main tables; CO and lowT tables left at their defaults
+  ! (unchanged between r22.05.1 and r26.04.1).
+    kap_file_prefix = 'a09'
+    kap_CO_prefix = 'gs98_co'
+    kap_lowT_prefix = 'lowT_fa05_gs98'
+    use_Type2_opacities = .true.
+    Zbase = 0.0142
+
+/ ! end of kap namelist
+
+
+&controls
+  ! see star/defaults/controls.defaults
+
+  ! convection: explicit, since the r26 default is 'TDC'
+    MLT_option = 'Cox'
+
+    use_other_energy = .true.
+
+  ! energy conservation (MESA V, Sec. 3)
+    use_gold_tolerances = .true.
+    energy_eqn_option = 'dedt'
+
+  ! r22.05.1 defaults that changed in r26.04.1; pinned here so the port reproduces r22.
+  ! Revisit once the port is validated (PORTING_NOTES.md).
+    use_gold2_tolerances = .true.         ! r26 default .false.
+    use_time_centered_eps_grav = .false.  ! r26 default .true.
+
+    super_eddington_scaling_factor = 1
+    super_eddington_wind_Ledd_factor = 1
+    surf_avg_tau = 100
+    trace_super_eddington_wind_boost = .true.
+
+    profile_header_include_sys_details = .false.
+
+  ! Engulfment parameters (run_star_extras.f90)
+    x_ctrl(1) = 0.001    ! companion mass (Msun); 0.001 Msun ~ M_J
+    x_ctrl(2) = 0.1      ! companion radius (Rsun); 0.1 Rsun ~ R_J
+    x_ctrl(3) = -10      ! stop point for companion (Rsun); < 0 to disable
+    x_ctrl(4) = 0.005    ! grazing phase: decrease dt if dr/R_influence > this
+    x_ctrl(5) = 0.5      ! full engulfment: decrease dt if dr/R_influence > this
+    x_ctrl(6) = 4.3      ! initial orbital separation (Rsun)
+    x_ctrl(7) = 1d-4     ! max da/a per step due to tides
+    x_ctrl(8) = 1d-10    ! tidal dissipation sigma (Hansen 2010 units); no tides if < 0
+    x_ctrl(9) = 1.0      ! alpha in R_p +- alpha*H_P deposition range (if x_logical_ctrl(2))
+    x_logical_ctrl(1) = .false. ! apply tides also when a < R_*
+    x_logical_ctrl(2) = .false. ! deposit energy over R_p +- alpha*H_P
+
+  ! output
+    photo_interval = 50
+    profile_interval = 2
+    history_interval = 1
+    max_num_profile_models = 10000
+    photo_digits = 5
+
+  ! timesteps and solver
+    min_timestep_limit = 1d-12
+    varcontrol_target = 1d-3
+
+  ! mesh
+    mesh_delta_coeff = 0.8
+
+/ ! end of controls namelist

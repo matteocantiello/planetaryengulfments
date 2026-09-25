@@ -1,0 +1,25 @@
+# MESA build products
+star
+**/make/*.o
+**/make/*.mod
+**/make/*.smod
+.mesa_temp_cache/
+# MESA run output (keep on Ceph, not in git)
+LOGS
+photos
+png
+restart_photo
+rn.out
+slurm-*.out
+# editor backups
+*~
+.DS_Store
+# literature PDFs (copyrighted; kept locally)
+literature/*.pdf
+# LaTeX build products
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.bbl
+paper/*.blg
+paper/*.pdf

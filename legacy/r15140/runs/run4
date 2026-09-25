@@ -1,0 +1,6 @@
+#!/bin/bash
+#SBATCH -N1 --exclusive
+export OMP_NUM_THREADS = 40
+cd /mnt/home/mcantiello/work/planetaryengulfments ; cd 1msun4rg ; ./rn > rn.out 
+
+

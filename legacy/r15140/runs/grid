@@ -1,0 +1,4 @@
+cd /mnt/home/mcantiello/work/planetaryengulfments ; cd 1msun2rg ; ./rn > rn.out 
+cd /mnt/home/mcantiello/work/planetaryengulfments ; cd 1msun4rg ; ./rn > rn.out
+cd /mnt/home/mcantiello/work/planetaryengulfments ; cd 1msun10rg ; ./rn > rn.out
+
