@@ -304,7 +304,7 @@ def fig_v2():
             fontsize=8, color=INK2)
     ax = axes[1]
     td = np.sqrt((100 * RSUN) ** 3 / (G * MSUN)) / YR
-    for run, lab, col in (("v2_yang_wake", "v2 + wake term ($\\epsilon_{wake}$ = 0.25; in progress)", C1),
+    for run, lab, col in (("v2_yang_wake", "v2 + wake term ($\\epsilon_{wake}$ = 0.25)", C1),
                           ("yang_Amech", "constant $\\epsilon$ = 0.2 (form 1)", C2)):
         h = hist(run)
         t = (h["star_age"] - h["star_age"][0]) / td

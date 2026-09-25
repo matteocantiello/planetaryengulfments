@@ -36,8 +36,8 @@ literature for the ejection calibration in `docs/ejection_calibration_literature
     - **3 = v2, default.** A time-dependent Ivanova & Nandez 2016 rule (Eq. 32). While the drag energy
       released exceeds the binding of the gas outside min(a, R* − R_inf) plus the energy already spent,
       ε_out = `x_ctrl(18)` = 1 of the drag power removes surface gas at its Bernoulli cost.
-    - Otherwise the fraction is ε_deep (`x_ctrl(19)` = 0) + ε_wake (`x_ctrl(20)` = 0) × the gravitational
-      share of the drag.
+    - Otherwise the fraction is ε_deep (`x_ctrl(19)` = 0) + ε_wake (`x_ctrl(20)` = **0.25**, calibrated on
+      Yang+26) × the gravitational share of the drag.
     - A smooth switch of width `x_ctrl(21)` = 0.2 joins the two regimes. A hard switch crashes the solver.
     - 1 = constant ε (`x_ctrl(15)`); 2 = Γ-limited.
   - 2: option B, which removes outward-moving gas with positive Bernoulli parameter.
@@ -72,7 +72,9 @@ literature for the ejection calibration in `docs/ejection_calibration_literature
    - The time-dependent MESA version is within ×2.2 of the static rule (10 R☉ + 10 M_J: 1.3e-4 vs 2.8e-4 M☉).
    - The rule gives zero ejection for 100 R☉ and AGB hosts, consistent with our option B runs and
      O'Connor+23. Yang+26 (eccentric, gravitational-drag dominated) is the outlier.
-   - Hypothesis being tested: gravitational wakes carry energy to the outer layers (ε_wake term).
+   - Gravitational wakes carry energy to the outer layers. With ε_wake = 0.25 the Yang case gives
+     1.75e-3 M☉, matching Yang+26's 1.5–2e-3 unbound. This is a single calibration point, and their orbit is
+     eccentric.
 7. **Literature** (fig5; `docs/ejection_calibration_literature.md`):
    - Dynamical ejecta come from the outer layers and are locally energy-limited against the Bernoulli
      deficit (δE_orb + δE_bind = 0).
@@ -99,10 +101,10 @@ literature for the ejection calibration in `docs/ejection_calibration_literature
 | `v2_rg10_10MJ`, `v2b_rg10_10MJ` | 10 R☉ + 10 M_J, v2 before the reference-depth fix / hard switch | superseded |
 | `v2c_rg10_10MJ` | 10 R☉ + 10 M_J, v2 with smooth switch | outer phase 1.31e-4 M☉ (static 2.8e-4); later near-surface stall at a = 9.77 R☉; stopped |
 | `v2_yang` | Yang setup, v2, ε_wake = 0 | done: 0 ejected (as the rule predicts) |
-| `v2_yang_wake` | Yang setup, v2, ε_wake = 0.25 | **running at archive time** (1.1e-4 M☉ by 10.6 yr) |
+| `v2_yang_wake` | Yang setup, v2, ε_wake = 0.25 | done: 1.75e-3 M☉ removed at disruption (Yang unbound 1.5–2e-3); ledger passes, orbit ledger 4e-15 |
 
 Runs marked as running live in local scratch
-(`/tmp/claude-1086/-mnt-home-mcantiello-work-engulfments/bc195eef-31c9-49e2-8393-e43d4d38834e/scratchpad/{agb200_10MJ_B,v2_yang_wake}`). Re-sync them to Ceph when they finish:
+(`/tmp/claude-1086/-mnt-home-mcantiello-work-engulfments/bc195eef-31c9-49e2-8393-e43d4d38834e/scratchpad/{agb200_10MJ_B}`). Re-sync them to Ceph when they finish:
 `rsync -a --exclude star --exclude make --exclude starting_models --exclude photos <run>/ runs/2026-09-25/<run>/`.
 
 ## Open issues
@@ -117,9 +119,9 @@ Runs marked as running live in local scratch
 - **r22 reproduction** of the port (needs SDK 22.6.1) was skipped at the user's choice.
 
 ## Next steps
-1. **Finish the wake calibration.** Get `v2_yang_wake`'s final removed mass, and choose ε_wake so that
-   Yang+26's unbound mass (~1.7e-3 M☉) is matched.
-   - Caveat: Yang's orbit is eccentric. Consider an eccentric-equivalent test, or treat Yang as an upper bound.
+1. **Test the wake calibration.** Done at ε_wake = 0.25 on one point. It needs a second gravitational-drag case
+   (e.g. a brown dwarf in an RGB star vs Kramer+20, or MacLeod & Loeb 2020), and a decision on how to treat
+   Yang's eccentric orbit.
 2. **Fix the near-surface solver stiffness.** It blocks compact hosts and massive companions once heat goes
    into tiny outer masses (4 R☉ runs; 10 R☉ + 10 M_J at a ≈ 9.77 R☉). Candidates:
    - kernel over H_P, or a minimum heated mass;

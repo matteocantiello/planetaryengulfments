@@ -96,7 +96,9 @@
     x_ctrl(16) = 0.0       ! beta = v_inf / v_esc,surf of the outflow (0: just unbound)
     x_ctrl(18) = 1.0       ! form 3: eps_out, fraction of drag power into ejection while the rule holds
     x_ctrl(19) = 0.0       ! form 3: eps_deep, fraction once the gas outside the orbit can no longer be unbound
-    x_ctrl(20) = 0.0       ! form 3: eps_wake, extra deep fraction x gravitational share of the drag (wake)
+    x_ctrl(20) = 0.25      ! form 3: eps_wake, extra deep fraction x gravitational share of the drag (wake).
+                           ! Calibrated on Yang+26 (1 Msun/100 Rsun + 5 MJ): 1.75e-3 Msun vs 3D unbound 1.5-2e-3.
+                           ! Single calibration point; Yang's orbit is eccentric (e = 0.65)
     x_ctrl(21) = 0.2       ! form 3: width of the smooth switch between channels (ratio 1 -+ w)
     x_ctrl(17) = -1        ! while in contact, max dt / t_dyn of the star (<= 0 off; ~0.1 to resolve hydro, option B)
     x_logical_ctrl(1) = .false. ! tides also when a < R_*

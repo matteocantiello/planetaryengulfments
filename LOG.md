@@ -205,3 +205,7 @@
 - `v2c` later stalls at a = 9.77 R_sun (10 M_J), the same near-surface stiffness as the compact hosts. Stopped.
 - `v2_yang` finished: 0 ejected (rule). `v2_yang_wake` (ε_wake = 0.25): 1.1e-4 M_sun by 10.6 yr, still running.
 - Fig. 7 (v2 validation) added. STATUS.md updated. Runs archived to Ceph.
+- **Wake-term calibration.** `v2_yang_wake` (ε_wake = 0.25) removed 1.75e-3 M_sun by disruption (Yang+26
+  unbound: 1.5–2e-3). E_wind/E_drag = 0.25. All ledger tests pass; the orbit ledger is 4e-15 now that
+  W_pot includes the mass-removal term.
+  - ε_wake = 0.25 is now the template default. Single calibration point; eccentric-orbit caveat.
