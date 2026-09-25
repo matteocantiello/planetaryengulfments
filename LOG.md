@@ -116,3 +116,13 @@
   - after 24 yr, R 203 → 404 R_sun, L 4.1e3 → 1.6e4 L_sun;
   - surface v/c_s = 1.5 (supersonic), but no gas is unbound yet (O'Connor: expansion reaches about 0.4 v_esc).
   - This is the dynamical regime needed to calibrate A.
+- `rg10_A2` (revised A) is identical to `rg10_B`:
+  - 870 models, a_dis 1.3347 R_sun, L_max 59.66 L_sun, R_max 10.464 R_sun, no mass removed;
+  - Γ_max = 5e-3;
+  - all ledger checks pass.
+- `agb200_10MJ_B`: disruption (Roche) at 0.77 R_sun after 27 yr.
+  - R 203 → 809 R_sun; L 4.1e3 → 2.2e4 L_sun, then fading to 3e2 L_sun; surface v/c_s up to 1.9.
+  - **No gas becomes unbound**, even in O'Connor's disruptive regime (they report the same).
+  - So in MESA 1D hydro, option B removes nothing in either regime. 3D (Yang+26: ~1e-3 M_sun ejected for
+    5 M_J in a 100 R_sun giant) does eject mass. Calibrating A needs a decision on the target: B (1D hydro) or
+    3D results.
