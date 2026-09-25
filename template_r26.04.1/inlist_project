@@ -34,8 +34,8 @@
 
 &kap
   ! see kap/defaults/kap.defaults
-  ! As in r22.05.1: a09 for the main tables; CO and lowT tables left at their defaults
-  ! (unchanged between r22.05.1 and r26.04.1).
+  ! As in O'Connor+23 (also for their Z = 0.02 1M*R models): a09 main tables, Zbase = 0.0142;
+  ! CO and lowT tables at their defaults (unchanged between r22.05.1 and r26.04.1).
     kap_file_prefix = 'a09'
     kap_CO_prefix = 'gs98_co'
     kap_lowT_prefix = 'lowT_fa05_gs98'
@@ -48,8 +48,10 @@
 &controls
   ! see star/defaults/controls.defaults
 
-  ! convection: explicit, since the r26 default is 'TDC'
-    MLT_option = 'Cox'
+  ! convection: as in O'Connor+23 (their published r22.05.1 inlist, Zenodo 10.5281/zenodo.7692746):
+  ! time-dependent convection with MESA's default alpha_MLT = 2 (identical defaults in r22.05.1 and r26.04.1)
+    MLT_option = 'TDC'
+    mixing_length_alpha = 2
 
     use_other_energy = .true.
 
@@ -85,11 +87,12 @@
     x_ctrl(13) = 10      ! minimum orbit sub-steps per MESA step
     x_ctrl(14) = 0       ! mesh refinement around the companion (~cells per kernel half-width); 0 = off
     x_integer_ctrl(1) = 1  ! drag law: 0 draft (C=1, pi max(R_2,R_acc)^2), 1 max(hydro,grav), 2 sum
-    x_integer_ctrl(2) = 1  ! kernel: 1 |r-a|<R_inf, 2 |r-a|<R_2+alpha H_P, 3 |r-a|<H_P/2, 4 Gaussian(R_inf)
+    x_integer_ctrl(2) = 2  ! kernel (2 = O'Connor+23 setup, alpha = x_ctrl(9) = 1): 1 |r-a|<R_inf, 2 |r-a|<R_2+alpha H_P, 3 |r-a|<H_P/2, 4 Gaussian(R_inf)
     x_integer_ctrl(3) = 10 ! terminal output every N models
     x_integer_ctrl(4) = 1  ! outflow: 0 none, 1 A (energy-limited prescription), 2 B (hydro, remove unbound gas)
     x_ctrl(15) = 1.0       ! f_w, efficiency of option A -- PROVISIONAL until calibrated against option B
     x_ctrl(16) = 1.0       ! beta = v_inf / v_esc,surf of the option-A outflow
+    x_ctrl(17) = -1        ! while in contact, max dt / t_dyn of the star (<= 0 off; ~0.1 to resolve hydro, option B)
     x_logical_ctrl(1) = .false. ! tides also when a < R_*
     x_logical_ctrl(2) = .true.  ! deposit tidal heat in the outer convective envelope
 

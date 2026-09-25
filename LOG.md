@@ -126,3 +126,23 @@
   - So in MESA 1D hydro, option B removes nothing in either regime. 3D (Yang+26: ~1e-3 M_sun ejected for
     5 M_J in a 100 R_sun giant) does eject mass. Calibrating A needs a decision on the target: B (1D hydro) or
     3D results.
+- **Template now matches O'Connor+23.** Their published r22.05.1 package (Zenodo 10.5281/zenodo.7692746,
+  downloaded) uses:
+  - MLT_option = 'TDC' with α_MLT = 2;
+  - heat deposited over R_p ± 1·H_P (our kernel 2, α = 1);
+  - a09 opacities with Zbase = 0.0142, also for their Z = 0.02 1M*R models.
+
+  The published physics equals our oconnor23 copy, rearranged. Their starting models are identical to ours.
+- **Yang+26 comparison setup:**
+  - New history columns: cumulative outward mass flux through 1, 2, 4 R0, all gas and gas with Bernoulli > 0,
+    matching Yang Eqs. 11–12.
+  - New x_ctrl(17): while in contact, dt ≤ x_ctrl(17)·t_dyn.
+  - Host `starting_models/1M100R.mod`: 1M80R evolved to R = 100.02 R_sun, L = 1219 L_sun, Teff = 3410 K
+    (Yang: 100, 1220, 3406); Z = 0.02, gs98.
+- **Yang comparison, unresolved** (`yang_B`, `yang_A`): 5 M_J from 0.95 R*, stopped at 0.3 R*.
+  - Inspiral in 12 yr (Yang, eccentric: ~8.7 yr). C_g = 1.6–3.1 along the path (Yang's 3D calibration:
+    1.5–3).
+  - Only 16 steps of 0.2–2.8 yr ≫ t_dyn = 0.05 yr, so the hydro response is not resolved. Ejected through R0:
+    1.5e-4 M_sun (Yang 2–3e-3); unbound 0; L 1219 → 1239 L_sun.
+  - Γ_max (A) = 2e-3.
+- Running: `yang_B_dyn` with dt ≤ 0.1 t_dyn.

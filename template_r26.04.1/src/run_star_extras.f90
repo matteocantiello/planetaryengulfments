@@ -29,6 +29,8 @@
 !   x_integer_ctrl(4) outflow: 0 none, 1 option A (energy-limited prescription), 2 option B (hydrodynamic;
 !                     remove unbound surface gas). Needs use_other_adjust_mdot = .true. (outflow.f90)
 !   x_ctrl(15) f_w, efficiency of option A      x_ctrl(16) beta = v_inf / v_esc,surf of the outflow (A)
+!   x_ctrl(17) while in contact, max dt in units of the star's dynamical time sqrt(R^3/GM); <= 0: off
+!              (needed to resolve the hydrodynamic response, e.g. for option B)
 !   x_logical_ctrl(1) tides also when a < R_*            x_logical_ctrl(2) deposit tidal heat in the envelope
 
 module run_star_extras
@@ -61,6 +63,9 @@ module run_star_extras
    integer, parameter :: i_M_wind = 13        ! cumulative mass removed by the engulfment outflow (g)
    integer, parameter :: i_E_unfunded = 14    ! outflow energy exceeding the drag energy available (should be 0)
    integer, parameter :: i_E_unb = 15         ! cumulative energy (u + v^2/2 - Gm/r) of gas removed in option B
+   integer, parameter :: i_R0 = 16            ! stellar radius at the start of the run (cm)
+   integer, parameter :: i_Mflux = 17         ! 17-19: cumulative outward mass flux through 1, 2, 4 R0 (g)
+   integer, parameter :: i_Mflux_unb = 20     ! 20-22: same, gas with Bernoulli parameter > 0 (g)
    integer, parameter :: i_active = 1         ! lxtra: companion still orbiting
 
    ! results of the current step attempt (recomputed on every attempt; committed in extras_finish_step)
@@ -268,6 +273,8 @@ contains
          lim = tol*o% W/abs(o% dadt_drag)
       end if
       if (abs(o% dadt_tide) > 0d0) lim = min(lim, s% x_ctrl(7)*o% a/abs(o% dadt_tide))
+      if (o% in_contact .and. s% x_ctrl(17) > 0d0) &
+         lim = min(lim, s% x_ctrl(17)*sqrt(pow3(s% r(1))/(standard_cgrav*s% m(1))))
       dt_limit_now = lim
       if (lim < s% dt_next) s% dt_next = lim
    end subroutine limit_dt
@@ -374,6 +381,7 @@ contains
          s% lxtra(i_active) = .true.
          s% xtra(i_a) = s% x_ctrl(6)*Rsun
          s% xtra(i_stop_age) = -1d0
+         s% xtra(i_R0) = s% r(1)
          call set_potential(s)
          call e_orb_specific(s, s% xtra(i_a), e, m_enc, dedx)
          s% xtra(i_E_orb0) = s% x_ctrl(1)*Msun*e
@@ -447,6 +455,7 @@ contains
          end if
       end if
       trial_model = -1
+      call accumulate_outflow_flux(s)
       if (mdot_model == s% model_number) then
          s% xtra(i_M_wind) = s% xtra(i_M_wind) + mdot_eng*s% dt
          s% xtra(i_E_unb) = s% xtra(i_E_unb) + E_unb_trial
@@ -470,6 +479,32 @@ contains
       end if
       if (extras_finish_step == terminate) s% termination_code = t_extras_finish_step
    end function extras_finish_step
+
+
+   ! Outward mass flux through fixed radii f*R0 (f = 1, 2, 4), as in Yang+26 Eqs. 11-12: sum over steps of
+   ! 4 pi r^2 rho v dt for v > 0, and the same for gas with Bernoulli parameter v^2/2 + u + P/rho - G m/r > 0.
+   subroutine accumulate_outflow_flux(s)
+      type(star_info), pointer :: s
+      integer :: j, k
+      real(dp) :: r_ref, v, b, flux
+      real(dp), parameter :: f_ref(3) = [1d0, 2d0, 4d0]
+      if (.not. s% v_flag .or. s% xtra(i_R0) <= 0d0) return
+      do j = 1, 3
+         r_ref = f_ref(j)*s% xtra(i_R0)
+         if (r_ref >= s% r(1)) cycle
+         k = 1
+         do while (k < s% nz)
+            if (s% r(k+1) <= r_ref) exit
+            k = k + 1
+         end do
+         v = s% v(k)
+         if (v <= 0d0) cycle
+         flux = 4d0*pi*r_ref*r_ref*s% rho(k)*v*s% dt
+         s% xtra(i_Mflux + j - 1) = s% xtra(i_Mflux + j - 1) + flux
+         b = 0.5d0*v*v + s% energy(k) + s% Peos(k)/s% rho(k) - standard_cgrav*s% m(k)/s% r(k)
+         if (b > 0d0) s% xtra(i_Mflux_unb + j - 1) = s% xtra(i_Mflux_unb + j - 1) + flux
+      end do
+   end subroutine accumulate_outflow_flux
 
 
    ! Heat this code set vs heat MESA integrated, relative to the heat deposited.
@@ -496,7 +531,7 @@ contains
 
    integer function how_many_extra_history_columns(id)
       integer, intent(in) :: id
-      how_many_extra_history_columns = 47
+      how_many_extra_history_columns = 53
    end function how_many_extra_history_columns
 
 
@@ -565,6 +600,13 @@ contains
       names(45) = 'engulf_M_above';          vals(45) = M_above_now/Msun
       names(46) = 'engulf_t_th';             vals(46) = t_th_now/secyer
       names(47) = 'engulf_t_cross';          vals(47) = t_cross_now/secyer
+      ! cumulative outward mass flux through 1, 2, 4 R0 (Msun), all gas and Bernoulli > 0 (Yang+26 Eqs. 11-12)
+      names(48) = 'engulf_Mout_1R0';         vals(48) = s% xtra(i_Mflux)/Msun
+      names(49) = 'engulf_Mout_2R0';         vals(49) = s% xtra(i_Mflux+1)/Msun
+      names(50) = 'engulf_Mout_4R0';         vals(50) = s% xtra(i_Mflux+2)/Msun
+      names(51) = 'engulf_Munb_1R0';         vals(51) = s% xtra(i_Mflux_unb)/Msun
+      names(52) = 'engulf_Munb_2R0';         vals(52) = s% xtra(i_Mflux_unb+1)/Msun
+      names(53) = 'engulf_Munb_4R0';         vals(53) = s% xtra(i_Mflux_unb+2)/Msun
    contains
       real(dp) function safe_div(a, b)
          real(dp), intent(in) :: a, b
