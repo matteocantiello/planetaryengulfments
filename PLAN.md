@@ -114,6 +114,12 @@ Status 2026-09-25: T1, T2 and T6 pass on grazing runs, and the physics cross-che
   Mach 2), η_pres = 0.464 gives F·v ≈ 1.0×10⁴⁰ erg/s. The same model is in our grid.
 
 ## Phase 4 — Physics choices and scope for the paper
+Status 2026-09-25:
+- The template matches O'Connor+23.
+- Outflow options A and B are implemented. B cannot reproduce the 3D ejecta, so A is being recast (v2) and
+  calibrated on the literature (`docs/ejection_calibration_literature.md`).
+- The compact-host numerical stall is parked. See `STATUS.md`.
+
 - **Drag.**
   - Our current C_d = 1 with no ½ is about 2× Lau+26's calibrated η_pres ≈ 0.46.
   - O'Connor+23 use a Mach-dependent C_d of 0.25–0.5 and the max of ram and gravitational drag.

@@ -24,3 +24,4 @@ paper/*.bbl
 paper/*.blg
 paper/*.pdf
 __pycache__/
+runs

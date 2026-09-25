@@ -176,3 +176,7 @@
   - Brown-dwarf post-CE α = 0.24–0.41.
   - Light curves: multi-shell Matsumoto & Metzger 2022.
   - This leads to prescription v2: an outer, Bernoulli-limited channel plus a deep ε channel.
+- **Restart point written: `STATUS.md`.**
+  - Six status figures in `docs/figures/` (`analysis/make_status_figures.py`): energy conservation, r22 bugs,
+    10 R_sun old vs new, 1D vs Yang+26 ejecta, literature unbound fraction vs q, AGB200 + 10 M_J.
+  - All day-1 runs archived to Ceph `runs/2026-09-25/`. The `runs` symlink is in the repo and git-ignored.
