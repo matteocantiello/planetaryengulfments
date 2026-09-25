@@ -23,6 +23,7 @@ def check(run):
     E_drag, E_tide, E_tdep = h["engulf_E_drag_cum"], h["engulf_E_tide_cum"], h["engulf_E_tide_dep_cum"]
     E_code, E_mesa = h["engulf_E_heat_code_cum"], h["engulf_E_heat_mesa_cum"]
     E_dep = E_drag + E_tdep
+    E_wind = h["engulf_E_wind_cum"] if "engulf_E_wind_cum" in h.dtype.names else 0 * E_drag
     last = -1
     print(f"== {run}: {n} models, a {h['engulf_a'][0]:.5f} -> {h['engulf_a'][last]:.5f} Rsun, "
           f"active at end: {bool(h['engulf_active'][last])}")
@@ -37,11 +38,16 @@ def check(run):
     print(f"T1a code heat vs MESA heat: max per-step rel diff {step_rel.max():.2e}, cumulative {cum_rel:.2e}"
           f"  [{'PASS' if ok1a else 'FAIL'}]")
 
-    # T1b: deposited = drag + deposited tides (code heat), everything released is booked
-    rel1b = abs(E_code[last] - E_dep[last]) / max(E_dep[last], 1e-300)
+    # T1b: heat set = drag energy - energy given to the outflow + deposited tides; everything released is booked
+    rel1b = abs(E_code[last] - (E_dep[last] - E_wind[last])) / max(E_dep[last], 1e-300)
     ok1b = rel1b < 1e-10
-    print(f"T1b heat set == E_drag + E_tide_dep: rel diff {rel1b:.2e}  [{'PASS' if ok1b else 'FAIL'}]; "
-          f"not deposited: {E_tide[last] - E_tdep[last]:.3e} erg")
+    print(f"T1b heat set == E_drag - E_wind + E_tide_dep: rel diff {rel1b:.2e}  [{'PASS' if ok1b else 'FAIL'}]; "
+          f"to outflow {E_wind[last]:.3e} erg; not deposited: {E_tide[last] - E_tdep[last]:.3e} erg")
+    if "engulf_E_unfunded_cum" in h.dtype.names:
+        unf = h["engulf_E_unfunded_cum"][last]
+        print(f"    outflow energy not covered by drag (should be 0): {unf:.3e} erg "
+              f"({unf / max(E_dep[last], 1e-300):.1e} of released)  [{'PASS' if unf <= 1e-6 * E_dep[last] else 'CHECK'}]")
+        print(f"    mass removed by the engulfment outflow: {h['engulf_M_wind_cum'][last]:.3e} Msun")
 
     # T1c: orbit ledger; residual only from potential changes between steps (e.g. remeshing)
     resid = h["engulf_orbit_ledger_resid"]

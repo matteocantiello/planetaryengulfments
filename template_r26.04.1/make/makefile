@@ -8,11 +8,12 @@ endif
 endif
 
 STAR = star
-RUN_STAR_EXTRA_OBJS = grid.o potential.o planet.o drag.o tides.o heating.o orbit.o
+RUN_STAR_EXTRA_OBJS = grid.o potential.o planet.o drag.o tides.o heating.o orbit.o outflow.o
 
 include $(MESA_DIR)/star/work_standard_makefile
 
 potential.o: grid.o
 heating.o: grid.o
+outflow.o: grid.o
 orbit.o: grid.o potential.o planet.o drag.o tides.o
 run_star_extras.o: $(RUN_STAR_EXTRA_OBJS)

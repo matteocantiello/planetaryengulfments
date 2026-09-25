@@ -26,6 +26,9 @@
 !              needs use_other_mesh_functions = .true.)
 !   x_integer_ctrl(1) drag law (0 draft, 1 max, 2 sum)   x_integer_ctrl(2) heating kernel (1-4)
 !   x_integer_ctrl(3) terminal output every this many models (<= 0: 10)
+!   x_integer_ctrl(4) outflow: 0 none, 1 option A (energy-limited prescription), 2 option B (hydrodynamic;
+!                     remove unbound surface gas). Needs use_other_adjust_mdot = .true. (outflow.f90)
+!   x_ctrl(15) f_w, efficiency of option A      x_ctrl(16) beta = v_inf / v_esc,surf of the outflow (A)
 !   x_logical_ctrl(1) tides also when a < R_*            x_logical_ctrl(2) deposit tidal heat in the envelope
 
 module run_star_extras
@@ -38,6 +41,7 @@ module run_star_extras
    use engulf_potential, only: set_potential, e_orb_specific
    use engulf_orbit, only: orbit_info, orbit_rates
    use engulf_heating, only: add_kernel_heat, envelope_weights
+   use engulf_outflow, only: overlying_envelope, surface_lift_energy, unbound_surface_mass
 
    implicit none
 
@@ -53,6 +57,10 @@ module run_star_extras
    integer, parameter :: i_E_orb0 = 9         ! E_orb at the start of the run (erg)
    integer, parameter :: i_stop_age = 10      ! age (yr) at which to stop after disruption; < 0 unset
    integer, parameter :: i_a_stop = 11        ! separation at disruption (cm)
+   integer, parameter :: i_E_wind = 12        ! cumulative drag energy given to the outflow instead of heat (A)
+   integer, parameter :: i_M_wind = 13        ! cumulative mass removed by the engulfment outflow (g)
+   integer, parameter :: i_E_unfunded = 14    ! outflow energy exceeding the drag energy available (should be 0)
+   integer, parameter :: i_E_unb = 15         ! cumulative energy (u + v^2/2 - Gm/r) of gas removed in option B
    integer, parameter :: i_active = 1         ! lxtra: companion still orbiting
 
    ! results of the current step attempt (recomputed on every attempt; committed in extras_finish_step)
@@ -67,6 +75,11 @@ module run_star_extras
    real(dp) :: E_orb_now = 0, dt_limit_now = 0
    real(dp), allocatable :: heat(:), wenv(:)
 
+   ! outflow set in engulf_adjust_mdot for the current step attempt
+   integer :: mdot_model = -1
+   real(dp) :: mdot_eng = 0, e_lift = 0, Gamma_now = 0, f_wind_now = 0, E_bind_now = 0, M_above_now = 0, &
+      t_th_now = 0, E_unb_trial = 0, E_wind_trial = 0, E_unfunded_trial = 0
+
 contains
 
    subroutine extras_controls(id, ierr)
@@ -78,6 +91,7 @@ contains
       if (ierr /= 0) return
 
       s% other_energy => engulf_energy
+      s% other_adjust_mdot => engulf_adjust_mdot
       s% how_many_other_mesh_fcns => how_many_engulf_mesh_fcns
       s% other_mesh_fcn_data => engulf_mesh_fcn_data
 
@@ -196,7 +210,18 @@ contains
       end if
       dE_drag_trial = fd*dE_tot
       dE_tide_trial = dE_tot - dE_drag_trial
-      if (Ed > 0d0) heat(1:nz) = heat(1:nz)*(dE_drag_trial/Ed)
+
+      ! option A: the energy carried off by the outflow set for this step is withheld from the drag heat
+      E_wind_trial = 0d0
+      E_unfunded_trial = 0d0
+      if (s% x_integer_ctrl(4) == 1 .and. mdot_model == s% model_number) then
+         E_wind_trial = mdot_eng*dt*e_lift
+         if (E_wind_trial > dE_drag_trial) then
+            E_unfunded_trial = E_wind_trial - dE_drag_trial
+            E_wind_trial = dE_drag_trial
+         end if
+      end if
+      if (Ed > 0d0) heat(1:nz) = heat(1:nz)*((dE_drag_trial - E_wind_trial)/Ed)
 
       dE_tide_dep_trial = 0d0
       if (dE_tide_trial > 0d0 .and. s% x_logical_ctrl(2)) then
@@ -285,6 +310,52 @@ contains
    end subroutine engulf_mesh_fcn_data
 
 
+   ! ------------------------------------------------------------------------ outflow (outflow.f90)
+
+   ! Called by MESA after the standard winds are set and before mass is removed, once per step attempt.
+   subroutine engulf_adjust_mdot(id, ierr)
+      integer, intent(in) :: id
+      integer, intent(out) :: ierr
+      type(star_info), pointer :: s
+      type(orbit_info) :: o
+      real(dp) :: M_unb
+      ierr = 0
+      call star_ptr(id, s, ierr)
+      if (ierr /= 0) return
+      mdot_model = -1
+      mdot_eng = 0d0
+      E_unb_trial = 0d0
+      Gamma_now = 0d0
+      f_wind_now = 0d0
+      if (s% doing_relax) return
+
+      select case (s% x_integer_ctrl(4))
+      case (1)
+         if (.not. s% lxtra(i_active)) return
+         call set_potential(s)
+         call orbit_rates(s, s% xtra(i_a), o)
+         if (o% P_drag <= 0d0) return
+         ! the gas that must be unbound: the heated region and everything above it
+         call overlying_envelope(s, max(s% xtra(i_a) - o% W, s% R_center), E_bind_now, M_above_now, t_th_now)
+         if (E_bind_now > 0d0) then
+            Gamma_now = o% P_drag*t_th_now/E_bind_now
+         else
+            Gamma_now = huge(1d0)
+         end if
+         f_wind_now = min(1d0, s% x_ctrl(15)*max(0d0, 1d0 - 1d0/Gamma_now))
+         e_lift = surface_lift_energy(s, s% x_ctrl(16))
+         mdot_eng = min(f_wind_now*o% P_drag/e_lift, 0.5d0*M_above_now/s% dt)
+      case (2)
+         call unbound_surface_mass(s, M_unb, E_unb_trial)
+         mdot_eng = M_unb/s% dt
+      case default
+         return
+      end select
+      s% mstar_dot = s% mstar_dot - mdot_eng
+      mdot_model = s% model_number
+   end subroutine engulf_adjust_mdot
+
+
    ! ------------------------------------------------------------------------ step hooks
 
    subroutine extras_startup(id, restart, ierr)
@@ -358,6 +429,8 @@ contains
          s% xtra(i_E_tide) = s% xtra(i_E_tide) + dE_tide_trial
          s% xtra(i_E_tide_dep) = s% xtra(i_E_tide_dep) + dE_tide_dep_trial
          s% xtra(i_E_heat_code) = s% xtra(i_E_heat_code) + heat_trial
+         s% xtra(i_E_wind) = s% xtra(i_E_wind) + E_wind_trial
+         s% xtra(i_E_unfunded) = s% xtra(i_E_unfunded) + E_unfunded_trial
          ! E_orb at the new separation changes as the star evolves under the companion
          call set_potential(s)
          call e_orb_specific(s, a_trial, e, m_enc, dedx)
@@ -373,6 +446,11 @@ contains
          end if
       end if
       trial_model = -1
+      if (mdot_model == s% model_number) then
+         s% xtra(i_M_wind) = s% xtra(i_M_wind) + mdot_eng*s% dt
+         s% xtra(i_E_unb) = s% xtra(i_E_unb) + E_unb_trial
+      end if
+      mdot_model = -1
 
       call update_now(s)
       if (s% lxtra(i_active)) call limit_dt(s, o_now)
@@ -417,7 +495,7 @@ contains
 
    integer function how_many_extra_history_columns(id)
       integer, intent(in) :: id
-      how_many_extra_history_columns = 36
+      how_many_extra_history_columns = 46
    end function how_many_extra_history_columns
 
 
@@ -474,6 +552,17 @@ contains
       names(34) = 'engulf_E_err_mesa_cum';   vals(34) = s% xtra(i_E_err_mesa)
       names(35) = 'engulf_E_err_rel_dep';    vals(35) = safe_div(s% xtra(i_E_err_mesa), E_dep)
       names(36) = 'engulf_a_stop';           vals(36) = s% xtra(i_a_stop)/Rsun
+      ! outflow (outflow.f90)
+      names(37) = 'engulf_Gamma';            vals(37) = min(Gamma_now, 1d99)
+      names(38) = 'engulf_f_wind';           vals(38) = f_wind_now
+      names(39) = 'engulf_mdot_wind';        vals(39) = mdot_eng/Msun*secyer      ! Msun/yr
+      names(40) = 'engulf_M_wind_cum';       vals(40) = s% xtra(i_M_wind)/Msun
+      names(41) = 'engulf_E_wind_cum';       vals(41) = s% xtra(i_E_wind)
+      names(42) = 'engulf_E_unfunded_cum';   vals(42) = s% xtra(i_E_unfunded)
+      names(43) = 'engulf_E_unb_removed_cum'; vals(43) = s% xtra(i_E_unb)
+      names(44) = 'engulf_E_bind_above';     vals(44) = E_bind_now
+      names(45) = 'engulf_M_above';          vals(45) = M_above_now/Msun
+      names(46) = 'engulf_t_th';             vals(46) = t_th_now/secyer
    contains
       real(dp) function safe_div(a, b)
          real(dp), intent(in) :: a, b

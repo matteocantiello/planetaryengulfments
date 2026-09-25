@@ -87,10 +87,14 @@
     x_integer_ctrl(1) = 1  ! drag law: 0 draft (C=1, pi max(R_2,R_acc)^2), 1 max(hydro,grav), 2 sum
     x_integer_ctrl(2) = 1  ! kernel: 1 |r-a|<R_inf, 2 |r-a|<R_2+alpha H_P, 3 |r-a|<H_P/2, 4 Gaussian(R_inf)
     x_integer_ctrl(3) = 10 ! terminal output every N models
+    x_integer_ctrl(4) = 1  ! outflow: 0 none, 1 A (energy-limited prescription), 2 B (hydro, remove unbound gas)
+    x_ctrl(15) = 1.0       ! f_w, efficiency of option A -- PROVISIONAL until calibrated against option B
+    x_ctrl(16) = 1.0       ! beta = v_inf / v_esc,surf of the option-A outflow
     x_logical_ctrl(1) = .false. ! tides also when a < R_*
     x_logical_ctrl(2) = .true.  ! deposit tidal heat in the outer convective envelope
 
     use_other_mesh_functions = .true.  ! refinement active only if x_ctrl(14) > 0
+    use_other_adjust_mdot = .true.     ! engulfment outflow (x_integer_ctrl(4))
 
   ! output
     photo_interval = 50

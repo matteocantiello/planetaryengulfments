@@ -64,3 +64,25 @@
   - Regression: 60-model in-contact run, history and profiles **bit-identical** to the pre-split build.
   - Moved it to `legacy/r23.05.1_MESA-Engulf/` without `.git`. It was in sync with GitHub, so its history
     is there.
+- **Speed question.** The old r15140 runs show the same regime dependence:
+  - `15140/template` (1 M_sun, 10 R_sun) did the whole engulfment in 920 models.
+  - `1msun2rg` (2 R_sun) stalled at dt ~ 1e-7 yr for over 100k models and hit the Slurm time limit.
+  - The new code on the same 10 R_sun model (draft drag law, `rg10_draftlaw`) plunges on the same schedule
+    (a = 7.06 R_sun at model 700; the old run had 7.49 at model 552).
+  - So the 4 R_sun stall is a compact-star problem, not a regression.
+- **Outflow options implemented** (x_integer_ctrl(4); src/outflow.f90; inlist `use_other_adjust_mdot = .true.`):
+  - A (default, f_w PROVISIONAL): Γ = P_drag t_th / E_bind of the heated region and everything above it.
+    A fraction f_w·max(0, 1−1/Γ) of the drag power removes surface gas at Ṁ = P_wind / e_lift instead of
+    heating.
+  - B: all drag energy goes into heat; outermost contiguous gas that is unbound (Bernoulli > 0) and moving
+    outward is removed.
+  - The ledger has new terms: E_wind (withheld heat), M_wind, E_unfunded (should be 0), and E_unb_removed (B).
+  - Regression with x_integer_ctrl(4) = 0: every pre-existing column is bit-identical.
+  - B is not yet exercised.
+- **Stall diagnosis revised.** The heated layer in the 4 R_sun case has Γ ≈ 1e-3 while grazing and an estimated
+  ~0.06 in the stalled state. Its thermal time (~0.01 yr) is far shorter than the time to unbind it, so it
+  radiates the heat in thermal balance rather than being ejected. Option A therefore correctly gives no outflow
+  there.
+  - The retries are Newton divergences (log T < 1, > 12, |Δlog T| > 99) in a thin, T-inverted, compressed shell
+    at the old photosphere (H ionisation zone). This points to numerical stiffness.
+  - Earlier statement corrected: the flow is not near-sonic (max v/c_s = 0.007); I misread a terminal column.
