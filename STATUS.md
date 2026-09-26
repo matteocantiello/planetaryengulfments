@@ -103,8 +103,8 @@ literature for the ejection calibration in `docs/ejection_calibration_literature
 | `v2_yang` | Yang setup, v2, ε_wake = 0 | done: 0 ejected (as the rule predicts) |
 | `v2_yang_wake` | Yang setup, v2, ε_wake = 0.25 | done: 1.75e-3 M☉ removed at disruption (Yang unbound 1.5–2e-3); ledger passes, orbit ledger 4e-15 |
 
-All runs are archived; none are running. Re-sync them to Ceph when they finish:
-`rsync -a --exclude star --exclude make --exclude starting_models --exclude photos <run>/ runs/2026-09-25/<run>/`.
+All runs are archived on Ceph; none are running. For a new run, archive with:
+`rsync -a --exclude star --exclude make --exclude starting_models --exclude photos <run>/ runs/<date>/<run>/`
 
 ## Open issues
 - **ε calibration.** Option A needs v2 (below). The current e_lift, (1+β²)GM/R − u, overcharges compared with
