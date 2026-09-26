@@ -91,7 +91,7 @@ literature for the ejection calibration in `docs/ejection_calibration_literature
 | `rg10_draftlaw` | r15140 model 1msun_rg_10, draft drag law | full run, 949 models; matches the old run; Roche at 1.34 R☉ |
 | `rg10_B`, `rg10_A2` | 1M10R + 1 M_J, option B and revised Γ-A | identical, quasi-static, no ejection |
 | `rg10_A` | first Γ(t_th) version of A | rejected (switched on spuriously; L collapsed) |
-| `agb200_10MJ_B` | O'Connor AGB200 + 10 M_J, option B | dynamical response, no unbound gas; **relaxation was still running at archive time** |
+| `agb200_10MJ_B` | O'Connor AGB200 + 10 M_J, option B | dynamical response, no unbound gas; stopped at max_model_number = 20000, 27 yr (~3 yr after disruption; planned 110 yr). Tiny steps, L oscillating 3e2–2e4 L☉. Restartable from the archived photo |
 | `host_1M100R` | evolves 1M80R → 100 R☉ | produced `1M100R.mod` |
 | `yang_B`, `yang_A` | Yang setup, unresolved | orbit OK, response unresolved |
 | `yang_B_dyn` | Yang setup, B, dt ≤ 0.1 t_dyn | 1.6e-4 M☉ outward flux through R0, 0 unbound (Yang: 2–3e-3, ~1.7e-3) |
@@ -103,8 +103,7 @@ literature for the ejection calibration in `docs/ejection_calibration_literature
 | `v2_yang` | Yang setup, v2, ε_wake = 0 | done: 0 ejected (as the rule predicts) |
 | `v2_yang_wake` | Yang setup, v2, ε_wake = 0.25 | done: 1.75e-3 M☉ removed at disruption (Yang unbound 1.5–2e-3); ledger passes, orbit ledger 4e-15 |
 
-Runs marked as running live in local scratch
-(`/tmp/claude-1086/-mnt-home-mcantiello-work-engulfments/bc195eef-31c9-49e2-8393-e43d4d38834e/scratchpad/{agb200_10MJ_B}`). Re-sync them to Ceph when they finish:
+All runs are archived; none are running. Re-sync them to Ceph when they finish:
 `rsync -a --exclude star --exclude make --exclude starting_models --exclude photos <run>/ runs/2026-09-25/<run>/`.
 
 ## Open issues

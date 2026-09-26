@@ -209,3 +209,7 @@
   unbound: 1.5–2e-3). E_wind/E_drag = 0.25. All ledger tests pass; the orbit ledger is 4e-15 now that
   W_pot includes the mass-removal term.
   - ε_wake = 0.25 is now the template default. Single calibration point; eccentric-orbit caveat.
+- `agb200_10MJ_B` ended at max_model_number (20000) at t = 27 yr, about 3 yr after disruption; the planned
+  relaxation was 110 yr. Tiny steps during the post-disruption envelope oscillations (L 3e2–2e4 L_sun).
+  Archived with its last photo, so it can be continued with a higher model limit if the light-curve work
+  needs the late fade.
